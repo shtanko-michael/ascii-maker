@@ -8,7 +8,10 @@ export const TAU = Math.PI * 2;
 // the status bar / back button, bottom ~22% by caption + music, right ~13% by the
 // action buttons, and tall phones crop a few % off both sides.
 export const LAYOUTS = {
-  reels: { name: "Reels safe", scene: { x: 60, y: 160, w: 560, h: 669 }, code: { top: 840, bottom: 1010 } },
+  // full-bleed 9:16 frame; the subject sits in the band no phone covers and above the code (y 152..840),
+  // the code is a translucent strip at the bottom of that band, left of the action buttons
+  reels: { name: "Reels safe", scene: { x: 0, y: 0, w: 720, h: 1280 }, subject: { y: 152, h: 688 },
+    code: { top: 846, bottom: 1004, left: 28, width: 588, overlay: true } },
   full:  { name: "Full frame", scene: { x: 0, y: 0, w: 720, h: 860 }, code: { top: 860, bottom: 1280 } },
   clean: { name: "No code",    scene: { x: 0, y: 0, w: 720, h: 1280 }, code: null },
 };
@@ -135,15 +138,28 @@ function sample(canvas, cols, rows) {
 }
 
 // cw/ch = character cell width/height in px (can differ for tall/wide glyphs)
-export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, redGain = 1.6, whiteGain = 1.15 }) {
+// draw a preset (authored for 720x860) into a band of the full canvas and stretch its top/bottom
+// rows outward so sky and ground reach the frame edges
+function placeBand(src, w, h, y0, bh) {
+  const c = makeCanvas(w, h), g = c.getContext("2d");
+  g.drawImage(src, 0, 0, w, 1, 0, 0, w, y0 + 1);                       // top edge -> up
+  g.drawImage(src, 0, bh - 1, w, 1, 0, y0 + bh - 1, w, h - y0 - bh + 1); // bottom edge -> down
+  g.drawImage(src, 0, y0);
+  return c;
+}
+
+export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, subject = null, redGain = 1.6, whiteGain = 1.15 }) {
   const cols = Math.floor(sceneW / cw), rows = Math.floor(sceneH / ch);
   const lum = new Float32Array(cols * rows), red = new Float32Array(cols * rows);
   let emitter;
   if (image) {
-    const cv = makeCanvas(sceneW, sceneH), c = cv.getContext("2d");
-    const s = Math.max(sceneW / image.width, sceneH / image.height);
+    // cover-crop the image into the subject band (or the whole scene), then extend its edges
+    const bh = subject ? subject.h : sceneH, by = subject ? subject.y : 0;
+    let cv = makeCanvas(sceneW, bh); const c = cv.getContext("2d");
+    const s = Math.max(sceneW / image.width, bh / image.height);
     const iw = image.width * s, ih = image.height * s;
-    c.drawImage(image, (sceneW - iw) / 2, (sceneH - ih) / 2, iw, ih);
+    c.drawImage(image, (sceneW - iw) / 2, (bh - ih) / 2, iw, ih);
+    if (subject) cv = placeBand(cv, sceneW, sceneH, by, bh);
     const d = sample(cv, cols, rows);
     for (let i = 0; i < cols * rows; i++) {
       const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
@@ -153,12 +169,14 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, r
     emitter = brightestBlob(lum, cols, rows, cw, ch);
   } else {
     const p = PRESETS[preset];
-    const Lc = makeCanvas(sceneW, sceneH), Rc = makeCanvas(sceneW, sceneH);
-    p.draw(Lc.getContext("2d"), Rc.getContext("2d"), sceneW, sceneH, rng(seed));
+    const bh = subject ? subject.h : sceneH, by = subject ? subject.y : 0;
+    let Lc = makeCanvas(sceneW, bh), Rc = makeCanvas(sceneW, bh);
+    p.draw(Lc.getContext("2d"), Rc.getContext("2d"), sceneW, bh, rng(seed));
+    if (subject) { Lc = placeBand(Lc, sceneW, sceneH, by, bh); Rc = placeBand(Rc, sceneW, sceneH, by, bh); }
     const dl = sample(Lc, cols, rows), dr = sample(Rc, cols, rows);
     for (let i = 0; i < cols * rows; i++) { lum[i] = dl[i * 4 + 3] / 255; red[i] = dr[i * 4 + 3] / 255; }
-    const e = p.emitter(sceneH), k = sceneW / 720;   // presets are authored for 720 wide
-    emitter = { x: e.x * k, y: e.y, spread: e.spread * k };
+    const e = p.emitter(bh), k = sceneW / 720;   // presets are authored for 720 wide
+    emitter = { x: e.x * k, y: e.y + by, spread: e.spread * k };
   }
   let ml = 0, mr = 0;
   for (let i = 0; i < lum.length; i++) { ml += lum[i]; mr += red[i]; }
@@ -283,9 +301,9 @@ export const FINE_DEFAULTS = {
 };
 
 // scrolling source-code panel under the scene
-export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W) {
+export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W, overlay = false) {
   const h = bottom - top, lh = 20;
-  ctx.fillStyle = "#0c0c0e"; ctx.fillRect(left, top, width, h);
+  ctx.fillStyle = overlay ? "rgba(8,8,10,0.78)" : "#0c0c0e"; ctx.fillRect(left, top, width, h);
   ctx.fillStyle = "#3c1414"; ctx.fillRect(left, top, width, 1);
   ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, h); ctx.clip();
   ctx.font = "15px ui-monospace, Menlo, Consolas, monospace"; ctx.textBaseline = "top";

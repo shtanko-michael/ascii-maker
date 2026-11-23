@@ -88,7 +88,7 @@ export default function App() {
   // ---------- engine ----------
   const L = LAYOUTS[p.layout] || LAYOUTS.reels, box = L.scene, loop = p.loopSec * 30;
   const layers = useMemo(
-    () => buildLayers({ preset: p.preset, image, cw: p.cellW, ch: p.cellH, sceneW: box.w, sceneH: box.h, seed: p.seed }),
+    () => buildLayers({ preset: p.preset, image, cw: p.cellW, ch: p.cellH, sceneW: box.w, sceneH: box.h, seed: p.seed, subject: L.subject }),
     [p.preset, image, p.cellW, p.cellH, p.layout, p.seed]
   );
   const streakList = useMemo(
@@ -105,7 +105,7 @@ export default function App() {
     const draw = () => {
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
       renderFrame(ctx, layers, streakList, tRef.current, opts);
-      if (L.code) renderCode(ctx, CODE_LINES, tRef.current, loop, L.code.top, L.code.bottom, box.x, box.w);
+      if (L.code) renderCode(ctx, CODE_LINES, tRef.current, loop, L.code.top, L.code.bottom, L.code.left ?? box.x, L.code.width ?? box.w, L.code.overlay);
     };
     const tick = (now) => {
       if (playing && now - last >= 1000 / 30) { last = now; tRef.current = (tRef.current + 1) % loop; draw(); }
