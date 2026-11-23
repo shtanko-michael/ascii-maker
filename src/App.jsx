@@ -34,6 +34,11 @@ export default function App() {
   const [busy, setBusy] = useState("");
   const [jobs, setJobs] = useState({});          // tabId -> music job progress
   const [ai, setAi] = useState({});              // tabId -> {started}
+  const [ig, setIg] = useState({ accounts: [] });  // connected Instagram accounts
+  const [igJobs, setIgJobs] = useState({});      // tabId -> publish progress
+  const [queue, setQueue] = useState([]);
+  const [tokenInput, setTokenInput] = useState("");
+  const [when, setWhen] = useState(() => new Date(Date.now() + 3600e3 - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 16));
   const [, bump] = useState(0);
 
   const canvasRef = useRef(null), audioRef = useRef(null), tRef = useRef(0);
@@ -61,6 +66,17 @@ export default function App() {
   }, [p.id, p.hasImage, p.musicBlob]);
 
   useEffect(() => { fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => setHealth(false)); }, []);
+
+  // Instagram accounts + queue, refreshed on focus and every 15 s
+  const loadIg = () => {
+    fetch("/api/ig/accounts").then((r) => r.json()).then(setIg).catch(() => {});
+    fetch("/api/ig/queue").then((r) => r.json()).then(setQueue).catch(() => {});
+  };
+  useEffect(() => {
+    loadIg(); const h = setInterval(loadIg, 15000);
+    window.addEventListener("focus", loadIg);
+    return () => { clearInterval(h); window.removeEventListener("focus", loadIg); };
+  }, []);
 
   const image = p.hasImage ? images.current.get(p.id) || null : null;
   const musicUrl = p.musicBlob ? audios.current.get(p.id) || null : p.musicUrl;
@@ -183,8 +199,8 @@ export default function App() {
   }
 
   // ---------- export ----------
-  async function exportVideo() {
-    setBusy("export"); setLog("Recording…");
+  // record the canvas (+ music) for one loop or the music length; onProgress(0..1)
+  async function recordWebm(onProgress = () => {}) {
     const stream = canvasRef.current.captureStream(30), el = audioRef.current;
     if (musicUrl && el) {
       let g = graphs.current.get(el);   // an <audio> can be wired to Web Audio only once
@@ -201,24 +217,73 @@ export default function App() {
     const chunks = []; rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     const done = new Promise((res) => (rec.onstop = res));
     tRef.current = 0; setPlaying(true); rec.start();
-    const total = Math.max(p.loopSec, musicUrl ? Math.min(p.musicSec, 90) : p.loopSec * 2);
-    await new Promise((r) => setTimeout(r, total * 1000));
+    const total = Math.max(p.loopSec, musicUrl ? Math.min(p.musicSec, 90) : p.loopSec * 2) * 1000, t0 = Date.now();
+    while (Date.now() - t0 < total) { onProgress((Date.now() - t0) / total); await new Promise((r) => setTimeout(r, 250)); }
     rec.stop(); await done;
-    const blob = new Blob(chunks, { type: "video/webm" });
-    let url = URL.createObjectURL(blob), name = `${p.name || "reel"}.webm`;
-    if (health?.ffmpeg) {
-      setLog("Converting to MP4…");
-      try {
-        const r = await fetch("/api/convert", { method: "POST", body: blob });
-        const j = await r.json();
-        if (r.ok) { url = j.url; name = `${p.name || "reel"}.mp4`; } else setLog(j.error);
-      } catch (e) { setLog(String(e)); }
-    }
-    const a = document.createElement("a"); a.href = url; a.download = name; a.click();
-    setLog(`Saved ${name}`); setBusy("");
+    return new Blob(chunks, { type: "video/webm" });
+  }
+  async function toMp4(blob) {
+    const r = await fetch("/api/convert", { method: "POST", body: blob });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "ffmpeg failed");
+    return j.url;                       // "/media/reel_<n>.mp4"
   }
 
-  const job = jobs[p.id], aiJob = ai[p.id];
+  async function exportVideo() {
+    setBusy("export"); setLog("Recording…");
+    try {
+      const blob = await recordWebm();
+      let url = URL.createObjectURL(blob), name = `${p.name || "reel"}.webm`;
+      if (health?.ffmpeg) { setLog("Converting to MP4…"); url = await toMp4(blob); name = `${p.name || "reel"}.mp4`; }
+      const a = document.createElement("a"); a.href = url; a.download = name; a.click();
+      setLog(`Saved ${name}`);
+    } catch (e) { setLog(String(e.message || e)); }
+    setBusy("");
+  }
+
+  // ---------- Instagram ----------
+  const igAccount = ig.accounts.find((a) => a.id === p.igAccount) || (ig.accounts.length === 1 ? ig.accounts[0] : null);
+  const setIgJob = (id, v) => setIgJobs((j) => ({ ...j, [id]: v && { ...(j[id] || {}), ...v } }));
+
+  async function addToken() {
+    const r = await fetch("/api/ig/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: tokenInput }) });
+    const j = await r.json();
+    if (!r.ok) return setLog(`Instagram: ${j.error}`);
+    setTokenInput(""); setLog(`Connected @${j.username}`); loadIg();
+  }
+  async function removeAccount(id) { await fetch(`/api/ig/accounts/${id}`, { method: "DELETE" }); loadIg(); }
+
+  // record -> mp4 -> publish now, or put into the schedule queue
+  async function publishReel(scheduleAt) {
+    const id = p.id, acc = igAccount;
+    if (!acc) return setLog("Pick an Instagram account first");
+    const body = { accountId: acc.id, caption: fullText, aiLabel: p.aiLabel, title: p.name };
+    try {
+      setIgJob(id, { state: "running", stage: "Recording", progress: 0, account: acc.username });
+      const blob = await recordWebm((f) => setIgJob(id, { progress: f * 0.3, stage: "Recording" }));
+      setIgJob(id, { stage: "Converting to MP4", progress: 0.32 });
+      body.video = await toMp4(blob);
+      if (scheduleAt) {
+        const r = await fetch("/api/ig/queue", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, publishAt: new Date(scheduleAt).toISOString() }) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error);
+        setIgJob(id, { state: "done", stage: `Scheduled for ${new Date(j.publishAt).toLocaleString()}`, progress: 1 });
+        loadIg(); return;
+      }
+      const r = await fetch("/api/ig/publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const { id: jobId, error } = await r.json();
+      if (!r.ok) throw new Error(error);
+      for (;;) {
+        await new Promise((res) => setTimeout(res, 1000));
+        const s = await (await fetch(`/api/ig/publish/${jobId}`)).json();
+        setIgJob(id, { state: s.state, stage: s.stage, progress: 0.35 + 0.65 * s.progress, elapsedMs: s.elapsedMs, permalink: s.permalink, error: s.error });
+        if (s.state !== "running") { loadIg(); return; }
+      }
+    } catch (e) { setIgJob(id, { state: "error", stage: "Failed", error: String(e.message || e) }); }
+  }
+
+  const job = jobs[p.id], aiJob = ai[p.id], igJob = igJobs[p.id];
 
   // ---------- UI ----------
   return (
@@ -323,7 +388,7 @@ export default function App() {
                 ? <input autoFocus defaultValue={t.name} onBlur={(e) => { updateTab(t.id, { name: e.target.value || t.name }); setRenaming(null); }}
                     onKeyDown={(e) => e.key === "Enter" && e.target.blur()} />
                 : <span>{t.name}</span>}
-              {(jobs[t.id]?.state === "running" || ai[t.id]) && <i className="dot" />}
+              {(jobs[t.id]?.state === "running" || ai[t.id] || igJobs[t.id]?.state === "running") && <i className="dot" />}
               {state.tabs.length > 1 && <b onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>×</b>}
             </div>
           ))}
@@ -374,6 +439,60 @@ export default function App() {
           )}
           {job?.state === "error" && <pre className="log err">{job.error}</pre>}
           {musicUrl && <audio key={p.id + musicUrl} ref={audioRef} src={musicUrl} loop controls crossOrigin="anonymous" />}
+        </Section>
+
+        <Section title="Instagram">
+          {ig.accounts.map((a) => (
+            <label key={a.id} className={"acct" + (igAccount?.id === a.id ? " on" : "")}>
+              <input type="radio" name="igacct" checked={igAccount?.id === a.id} onChange={() => set({ igAccount: a.id })} />
+              {a.avatar ? <img src={a.avatar} alt="" /> : <span className="ava" />}
+              <span className="aname">@{a.username}
+                <small>{a.limit ? `${a.limit.used}/${a.limit.total} today · ` : ""}token {Math.max(0, Math.round((a.expiresAt - Date.now()) / 864e5))} d</small>
+              </span>
+              <b onClick={(e) => { e.preventDefault(); removeAccount(a.id); }} title="Disconnect">×</b>
+            </label>
+          ))}
+          <details className="group" open={!ig.accounts.length}>
+            <summary>Add account</summary>
+            {ig.oauth && <a className="btn wide center" href="/api/ig/login" target="_blank" rel="noreferrer">Log in with Instagram</a>}
+            <div className="row">
+              <input placeholder="Paste access token" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} />
+              <button disabled={!tokenInput} onClick={addToken}>Add</button>
+            </div>
+            <p className="hint">Meta app → Instagram → API setup → Generate token. See README.</p>
+          </details>
+          {ig.accounts.length > 0 && <>
+            <Toggle label="Label as AI-generated" v={p.aiLabel} set={field("aiLabel")} />
+            <div className="row">
+              <button className="primary" disabled={igJob?.state === "running" || !igAccount || !health?.ffmpeg} onClick={() => publishReel()}>
+                ⇪ Publish{igAccount ? ` to @${igAccount.username}` : ""}
+              </button>
+            </div>
+            <div className="row">
+              <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} style={{ flex: 1 }} />
+              <button disabled={igJob?.state === "running" || !igAccount || !health?.ffmpeg} onClick={() => publishReel(when)}>Schedule</button>
+            </div>
+            {!health?.ffmpeg && <p className="hint warn">Publishing needs ffmpeg for the MP4.</p>}
+          </>}
+          {igJob && igJob.state !== "error" && (
+            <Progress value={igJob.progress} label={`${igJob.stage} · ${Math.round(igJob.progress * 100)}%`}
+              sub={igJob.permalink ? <a href={igJob.permalink} target="_blank" rel="noreferrer">Open the Reel ↗</a> : igJob.elapsedMs ? `${fmt(igJob.elapsedMs)} on Instagram's side` : null} />
+          )}
+          {igJob?.state === "error" && <pre className="log err">{igJob.error}</pre>}
+          {queue.length > 0 && <>
+            <h2>Queue</h2>
+            {queue.slice().sort((a, b) => a.publishAt - b.publishAt).map((q) => (
+              <div key={q.id} className={"qitem " + q.status}>
+                <span>{new Date(q.publishAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</span>
+                <span className="qmeta">@{q.username} · {q.title || "reel"} · {q.status}
+                  {q.permalink && <> · <a href={q.permalink} target="_blank" rel="noreferrer">open</a></>}
+                  {q.error && <em title={q.error}> · {q.error.slice(0, 40)}</em>}
+                </span>
+                {q.status !== "publishing" && <b onClick={() => fetch(`/api/ig/queue/${q.id}`, { method: "DELETE" }).then(loadIg)}>×</b>}
+              </div>
+            ))}
+            <p className="hint">Scheduled posts go out while the local server is running.</p>
+          </>}
         </Section>
 
         <Section title="Post">
@@ -469,5 +588,5 @@ const Color = ({ label, v, set }) => (
 const Status = ({ health }) => {
   if (health === null) return <p className="hint">Checking local server…</p>;
   if (!health) return <p className="hint warn">Local server is offline — run <code>npm run dev</code>.</p>;
-  return <p className="hint">ElevenLabs CLI {health.cli ? "✓" : "✗"} · API key {health.apiKey ? "✓" : "–"} · Claude {health.claude ? "✓" : "✗"} · ffmpeg {health.ffmpeg ? "✓" : "✗"}</p>;
+  return <p className="hint">ElevenLabs CLI {health.cli ? "✓" : "✗"} · API key {health.apiKey ? "✓" : "–"} · Claude {health.claude ? "✓" : "✗"} · ffmpeg {health.ffmpeg ? "✓" : "✗"} · tunnel {health.cloudflared ? "✓" : "✗"}</p>;
 };

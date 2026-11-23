@@ -10,6 +10,7 @@ import spawn from "cross-spawn";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mountInstagram } from "./instagram.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MEDIA = path.join(ROOT, "..", "media");
@@ -48,12 +49,13 @@ function run(cmd, args, { timeoutMs = 600000, cwd } = {}) {
 const fill = (args, vars) => args.map((a) => a.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)));
 
 app.get("/api/health", async (_req, res) => {
-  const [cli, claude, ff] = await Promise.all([
+  const [cli, claude, ff, cf] = await Promise.all([
     run(MUSIC_CMD[0], ["--version"], { timeoutMs: 10000 }),
     run(CLAUDE_CMD[0], ["--version"], { timeoutMs: 10000 }),
     run(FFMPEG, ["-version"], { timeoutMs: 10000 }),
+    run(process.env.CLOUDFLARED || "cloudflared", ["--version"], { timeoutMs: 10000 }),
   ]);
-  res.json({ cli: cli.code === 0, claude: claude.code === 0, ffmpeg: ff.code === 0, apiKey: !!process.env.ELEVENLABS_API_KEY });
+  res.json({ cli: cli.code === 0, claude: claude.code === 0, ffmpeg: ff.code === 0, cloudflared: cf.code === 0 || !!process.env.PUBLIC_BASE_URL, apiKey: !!process.env.ELEVENLABS_API_KEY });
 });
 
 // ---------------- music jobs ----------------
@@ -176,6 +178,8 @@ function extractJson(text) {
   }
   return null;
 }
+
+mountInstagram(app, { MEDIA, PORT });
 
 // ---------------- export ----------------
 app.post("/api/convert", express.raw({ type: "*/*", limit: "500mb" }), async (req, res) => {

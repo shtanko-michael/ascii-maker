@@ -27,6 +27,7 @@
 | ✨ **Claude** | Your local `claude` CLI looks at the current frame and writes the music prompt, the caption and **5 hashtags** |
 | #️⃣ **Caption & hashtags** | Caption editor with a 2200-character counter; hashtags capped at **5**, the Instagram limit; one-click copy |
 | 🎵 **AI music** | Generates a track with the **ElevenLabs CLI** (REST fallback) and a **live progress bar**: stage, %, elapsed, ETA and bytes received |
+| 📤 **Instagram publishing** | Several Instagram accounts; publish now or schedule, with a progress bar; queue of scheduled posts; AI-content label; per-account daily quota |
 | ⬇ **Export** | Records the canvas and the music into a video; the local server converts it to an Instagram-ready **MP4** with ffmpeg |
 
 ## 📸 Screenshots
@@ -104,6 +105,28 @@ The **✨ Write prompt, caption & tags** button saves the current frame as a PNG
 If the CLI call fails and `ELEVENLABS_API_KEY` is set, the server calls `POST /v1/music` directly.
 The Music API is available on paid ElevenLabs plans only.
 
+### 📤 Instagram publishing (several accounts)
+
+Publishing uses the official **Instagram API with Instagram Login**. You need **professional** (Business or Creator) accounts; no Facebook Page is needed.
+
+**1. Create a Meta app (once).**
+1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps) → **Create app** → use case **Manage messaging & content on Instagram**.
+2. In **Instagram → API setup with Instagram login**, add each Instagram account under **Generate access tokens**. In development mode an account must accept the tester invite: Instagram → Settings → Apps and websites → Tester invites.
+3. Click **Generate token** next to the account and copy the token.
+
+**2. Add accounts in the studio.** Open **Instagram → Add account**, paste the token and click **Add**. Repeat for every account. The tokens last about 60 days; the server refreshes them automatically.
+
+**3. Public URL for the video.** Instagram downloads the MP4 itself, so it must be reachable from the internet:
+- **Easiest:** install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared` · `brew install cloudflared`). While publishing, the server opens a free temporary `*.trycloudflare.com` tunnel and shares only a one-off randomly named copy of the video, which is deleted after publishing.
+- Or set `PUBLIC_BASE_URL` to your own public address.
+
+**Optional: "Log in with Instagram" button.** Set `IG_APP_ID`, `IG_APP_SECRET` and an HTTPS `IG_REDIRECT_URI` that points to `/api/ig/callback`, and register the same URI in the app.
+
+**How a publish runs:** record the loop with music → convert to MP4 (ffmpeg) → create a `REELS` container with the caption and 5 hashtags → Instagram downloads and processes the video (progress bar) → `media_publish` → link to the Reel.
+**Schedule:** pick a date and time and click **Schedule**. The queue lives in `media/queue.json`, and posts go out while `npm run dev` or `npm start` is running.
+
+> Tokens are stored locally in `media/instagram.json`, which is git-ignored. Do not commit or share it.
+
 ### 🎬 MP4 export
 
 Install [ffmpeg](https://ffmpeg.org) (`winget install ffmpeg` · `brew install ffmpeg`).
@@ -157,9 +180,11 @@ ffmpeg -r 30 -i fr/%04d.png -pix_fmt yuv420p out.mp4
 ```
 ├─ src/
 │  ├─ engine.js     # ASCII engine: scenes, layers, streaks, frame & code-panel render
-│  ├─ App.jsx       # editor, Instagram preview, caption/hashtags, music, export
+│  ├─ App.jsx       # tabs, editor, Instagram preview & publishing, caption/hashtags, music, export
+│  ├─ store.js      # autosave: localStorage + IndexedDB
 │  └─ styles.css
-├─ server/server.js # /api/music (ElevenLabs), /api/convert (ffmpeg), /api/health
+├─ server/server.js # /api/music (ElevenLabs jobs), /api/ai (Claude), /api/convert (ffmpeg), /api/health
+├─ server/instagram.js # accounts, publish jobs, scheduled queue, public tunnel
 ├─ python/          # offline Python renderers
 └─ docs/            # README media
 ```

@@ -21,6 +21,7 @@ export function newProject(name = "Untitled", patch = {}) {
     tags: ["asciiart", "generativeart", "creativecoding", "codeart", "darkart"],
     prompt: "", instrumental: true, musicSec: 30,
     musicUrl: null, musicName: "Original audio", musicBlob: false,
+    igAccount: null, aiLabel: true,
     ...patch,
   };
 }

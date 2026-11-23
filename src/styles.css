@@ -108,3 +108,21 @@ details.group[open] summary::before { content: "▾ "; }
 .plabel { font-size: 12px; margin-top: 6px; }
 .psub { font-size: 11px; color: var(--mut); }
 .log.err { color: #ffb4a8; max-width: none; }
+
+/* instagram */
+.acct { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; margin: 6px 0; cursor: pointer; }
+.acct.on { border-color: var(--red); background: #1e0d0f; }
+.acct input { width: auto; accent-color: var(--red); }
+.acct img, .acct .ava { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
+.aname { display: flex; flex-direction: column; flex: 1; }
+.aname small { color: var(--mut); font-size: 11px; }
+.acct b { color: var(--mut); font-weight: 400; padding: 0 4px; }
+.acct b:hover { color: #fff; }
+.btn.wide, a.btn { display: block; text-align: center; text-decoration: none; margin: 6px 0; }
+.qitem { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.qitem span:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.qmeta { flex: 1; color: var(--mut); }
+.qitem.published .qmeta { color: #9be39b; }
+.qitem.failed .qmeta { color: #ffb4a8; }
+.qitem b { cursor: pointer; color: var(--mut); font-weight: 400; }
+.psub a { color: #ff8a7a; }
