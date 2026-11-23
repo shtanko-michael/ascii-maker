@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/hero.gif" width="300" alt="ASCII loop: a glowing moon over red mountains, light rain falling" />
+<img src="docs/v2-hero.gif" width="300" alt="ASCII loop: a glowing moon over red mountains, light rain falling" />
 
 # ASCII Reels Studio
 
@@ -29,15 +29,15 @@
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/studio.png" alt="Studio overview" />
+  <img src="docs/v2-studio.png" alt="Studio overview" />
 </p>
 
 <p align="center">
-  <img src="docs/reels-moon.png" width="240" alt="Reels preview — Moon scene" />
+  <img src="docs/v2-reels-moon.png" width="240" alt="Reels preview — Moon scene" />
   &nbsp;
-  <img src="docs/reels-toxic.png" width="240" alt="Reels preview — blocks glyphs, toxic tint" />
+  <img src="docs/v2-reels-toxic.png" width="240" alt="Reels preview — blocks glyphs, toxic tint" />
   &nbsp;
-  <img src="docs/feed.png" width="240" alt="Feed 4:5 preview" />
+  <img src="docs/v2-feed.png" width="240" alt="Feed 4:5 preview" />
 </p>
 <p align="center"><sub>Reels · <i>Moon</i> &nbsp;|&nbsp; Reels · <code>blocks</code> + <code>toxic</code> &nbsp;|&nbsp; Feed 4:5</sub></p>
 
@@ -46,7 +46,7 @@
 Instagram draws its UI on top of a Reel: the status bar and back button cover the **top ~12%**, the caption and music line cover the **bottom ~21%**, and the action buttons cover the **right ~13%**. Tall phones also crop a little off both sides.
 The default **Reels safe** layout keeps the scene and the code inside the visible box, and the bands are left black.
 
-<p align="center"><img src="docs/reels-safe.png" width="260" alt="Safe-zone overlay" /></p>
+<p align="center"><img src="docs/v2-reels-safe.png" width="260" alt="Safe-zone overlay" /></p>
 
 | Layout | Scene | Code panel | Use for |
 |---|---|---|---|
