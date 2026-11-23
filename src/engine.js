@@ -23,6 +23,39 @@ export function rng(seed) {
 
 // ---------- built-in scenes: draw white parts on `L`, red parts on `R` ----------
 export const PRESETS = {
+  moon: {
+    name: "Moon",
+    emitter: (h) => ({ x: 360, y: h * 0.12, spread: 330 }),
+    draw(L, R, w, h, rnd) {
+      const sx = w / 720, sy = h / 860;
+      const g = R.createLinearGradient(0, 0, 0, h);          // red dusk sky
+      g.addColorStop(0, "rgba(255,255,255,0.05)"); g.addColorStop(0.6, "rgba(255,255,255,0.45)");
+      g.addColorStop(1, "rgba(255,255,255,0.1)");
+      R.fillStyle = g; R.fillRect(0, 0, w, h);
+      L.filter = "blur(40px)"; L.fillStyle = "rgba(255,255,255,0.4)";   // moon halo + disc
+      L.beginPath(); L.arc(430 * sx, 250 * sy, 150 * sx, 0, TAU); L.fill();
+      L.filter = "blur(2px)"; L.fillStyle = "#fff";
+      L.beginPath(); L.arc(430 * sx, 250 * sy, 95 * sx, 0, TAU); L.fill();
+      L.globalCompositeOperation = "destination-out"; L.fillStyle = "rgba(0,0,0,0.35)";   // craters
+      [[400, 220, 20], [470, 280, 26], [440, 200, 10], [395, 290, 12]].forEach(([x, y, r]) => {
+        L.beginPath(); L.arc(x * sx, y * sy, r * sx, 0, TAU); L.fill(); });
+      L.globalCompositeOperation = "source-over"; L.filter = "none";
+      const ridge = (c, base, amp, f, ph, style) => {            // mountain silhouettes
+        c.globalCompositeOperation = "destination-out"; c.fillStyle = "#000";
+        c.beginPath(); c.moveTo(0, h);
+        for (let x = 0; x <= w; x += 6) c.lineTo(x, (base + amp * Math.sin(x / (f * sx) + ph) + amp * 0.5 * Math.sin(x / (f * 0.37 * sx) + ph * 2)) * sy);
+        c.lineTo(w, h); c.fill(); c.globalCompositeOperation = "source-over";
+        if (style) { c.fillStyle = style; c.beginPath(); c.moveTo(0, h);
+          for (let x = 0; x <= w; x += 6) c.lineTo(x, (base + amp * Math.sin(x / (f * sx) + ph) + amp * 0.5 * Math.sin(x / (f * 0.37 * sx) + ph * 2)) * sy);
+          c.lineTo(w, h); c.fill(); }
+      };
+      ridge(L, 560, 40, 90, 1, null); ridge(R, 560, 40, 90, 1, "rgba(255,255,255,0.55)");
+      ridge(L, 680, 30, 60, 3, null); ridge(R, 680, 30, 60, 3, "rgba(255,255,255,0.25)");
+      ridge(L, 780, 18, 40, 5, null); ridge(R, 780, 18, 40, 5, "rgba(255,255,255,0.08)");
+      R.fillStyle = "rgba(255,255,255,0.7)";                      // stars
+      for (let i = 0; i < 120; i++) R.fillRect(rnd() * w, rnd() * h * 0.55, 2, 2);
+    },
+  },
   crucifix: {
     name: "Cross",
     emitter: (h) => ({ x: 360, y: h * 0.31, spread: 220 }),

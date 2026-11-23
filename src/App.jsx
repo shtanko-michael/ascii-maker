@@ -14,8 +14,8 @@ const TINTS = { blood: [1, 0.06, 0.06], ember: [1, 0.45, 0.1], toxic: [0.3, 1, 0
 const SUGGESTED = ["asciiart", "ascii", "generativeart", "creativecoding", "codeart", "proceduralart", "glitchart",
   "digitalart", "darkart", "surrealart", "horrorart", "newmediaart", "algorithmicart", "computerart", "textart",
   "loopanimation", "animationloop", "javascript", "reactjs", "dailyart"];
-const DEFAULT_CAPTION = `He never asked to be seen.
-Red light, white silence, ash falling through time.
+const DEFAULT_CAPTION = `The moon is just a gradient that learned to glow.
+Red dusk, white light, characters falling like rain.
 
 Every frame is code. Not a single pixel drawn by hand.
 The source scrolls at the bottom — pause and read it.
@@ -24,7 +24,7 @@ What would you feed into it? 👇`;
 
 export default function App() {
   // ---------- visual params ----------
-  const [preset, setPreset] = useState("crucifix");
+  const [preset, setPreset] = useState("moon");
   const [image, setImage] = useState(null);
   const [cell, setCell] = useState(8);
   const [ramp, setRamp] = useState("classic");

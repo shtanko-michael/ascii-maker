@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/hero.gif" width="300" alt="ASCII loop: a glowing faceless figure on a red cross, ash falling" />
+<img src="docs/hero.gif" width="300" alt="ASCII loop: a glowing moon over red mountains, light rain falling" />
 
 # ASCII Reels Studio
 
@@ -16,7 +16,7 @@
 
 | | |
 |---|---|
-| 🖼 **Scenes** | Built-in procedural scenes (*Cross*, *Monolith*) or **your own image** |
+| 🖼 **Scenes** | Built-in procedural scenes (*Moon*, *Monolith*, *Cross*) or **your own image** |
 | 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`), cell size, colour tints |
 | 🌧 **Animation** | Falling glowing streaks, a travelling pulse, flicker; all loop seamlessly |
 | 🧾 **Code panel** | The engine's own source code scrolls under the scene, like in the creative-coding reels |
@@ -33,13 +33,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/reels-monolith.png" width="240" alt="Reels preview — Monolith scene" />
+  <img src="docs/reels-moon.png" width="240" alt="Reels preview — Moon scene" />
   &nbsp;
   <img src="docs/reels-toxic.png" width="240" alt="Reels preview — blocks glyphs, toxic tint" />
   &nbsp;
   <img src="docs/feed.png" width="240" alt="Feed 4:5 preview" />
 </p>
-<p align="center"><sub>Reels · <i>Monolith</i> &nbsp;|&nbsp; Reels · <code>blocks</code> + <code>toxic</code> &nbsp;|&nbsp; Feed 4:5</sub></p>
+<p align="center"><sub>Reels · <i>Moon</i> &nbsp;|&nbsp; Reels · <code>blocks</code> + <code>toxic</code> &nbsp;|&nbsp; Feed 4:5</sub></p>
 
 ## 🛡 Reels safe zones
 
