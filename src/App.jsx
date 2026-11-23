@@ -35,6 +35,7 @@ export default function App() {
   const [jobs, setJobs] = useState({});          // tabId -> music job progress
   const [ai, setAi] = useState({});              // "tabId:mode" -> {started}
   const [aiErr, setAiErr] = useState({});
+  const [aiNote, setAiNote] = useState({});
   const [confirmReset, setConfirmReset] = useState(false);
   const [ig, setIg] = useState({ accounts: [] });  // connected Instagram accounts
   const [igJobs, setIgJobs] = useState({});      // tabId -> publish progress
@@ -201,6 +202,8 @@ export default function App() {
       if (mode === "caption" && j.hashtags?.length) patch.tags = j.hashtags.slice(0, MAX_TAGS);
       updateTab(id, patch);
       setAiErr((e) => ({ ...e, [key]: null }));
+      if (mode === "caption") setAiNote((n) => ({ ...n, [id]: j.usedBrief ? "✓ Written from your brief" : p.brief?.trim()
+        ? "⚠ The server ignored the brief — restart it (close the window and run start-ascii-maker.cmd again)" : "No brief: written from the frame" }));
     } catch (e) { setAiErr((x) => ({ ...x, [key]: String(e.message || e) })); }
     setAi((a) => { const n = { ...a }; delete n[key]; return n; });
   }
@@ -484,7 +487,7 @@ export default function App() {
           </button>
           {capJob && <Progress indeterminate label={<Elapsed since={capJob.started} />} />}
           {aiErr[`${p.id}:caption`] && <pre className="log err">{aiErr[`${p.id}:caption`]}</pre>}
-          <p className="hint">Claude reads the brief and looks at the current frame.</p>
+          <p className={"hint" + (aiNote[p.id]?.startsWith("⚠") ? " warn" : "")}>{aiNote[p.id] || "Claude builds the caption on the brief; the frame only sets the mood."}</p>
 
           <label className="lbl">Username</label>
           <input value={p.username} onChange={(e) => set({ username: e.target.value })} />

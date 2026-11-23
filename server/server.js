@@ -153,22 +153,34 @@ app.post("/api/ai", async (req, res) => {
     `Scene stats: brightness ${(+stats.brightness || 0).toFixed(3)}, redness ${(+stats.redness || 0).toFixed(3)}.`,
     `Visual settings: ${JSON.stringify(settings).slice(0, 800)}.`,
   ];
+  const hasBrief = String(brief).trim().length > 0;
   const lines = mode === "music" ? [
     ...common,
-    brief ? `The author's brief for the post (use it for mood): """${String(brief).slice(0, 1500)}"""` : "",
+    hasBrief ? `The author's brief for the post (use its mood and meaning): """${String(brief).slice(0, 1500)}"""` : "",
     musicPrompt ? `Current music prompt draft: """${String(musicPrompt).slice(0, 800)}"""` : "",
     `Return ONLY a JSON object with one key:`,
-    `"musicPrompt": an English prompt for ElevenLabs Music (genre, mood, instruments, tempo, texture) that fits the visual, instrumental, loopable, ${musicSec} s, under 400 characters.`,
+    `"musicPrompt": an English prompt for ElevenLabs Music (genre, mood, instruments, tempo, texture) that fits the visual and the brief, instrumental, loopable, ${musicSec} s, under 400 characters.`,
+  ] : hasBrief ? [
+    "You write Instagram Reel captions. The author gave a BRIEF: it is the single most important input.",
+    `BRIEF:\n"""${String(brief).slice(0, 2000)}"""`,
+    "Rules:",
+    "1. The caption is about the brief's idea, story and meaning. Develop it: a hook, 1-3 lines that deepen the idea, a closing question for comments.",
+    "2. Write in the SAME language as the brief (if the brief is in Russian, write in Russian). Match its tone.",
+    "3. The animation is only an illustration of the idea. Do not describe the visual or the technique (ASCII, code, glyphs, characters, render) unless the brief asks for it.",
+    "4. Hashtags must match the brief's theme first; at most one may be about the art form.",
+    framePath ? `You may glance at the current frame for mood only: ${framePath}` : "",
+    `Return ONLY a JSON object with keys:`,
+    `"caption": 2-6 short lines, no hashtags inside;`,
+    `"hashtags": exactly 5 hashtags without the # sign (Instagram allows at most 5).`,
   ] : [
     ...common,
-    brief ? `The author's brief. Follow it closely, including its language and tone; the caption must be built on it:\n"""${String(brief).slice(0, 2000)}"""`
-      : "No brief was given; write in English and base the caption on the visual.",
+    "No brief was given; write in English and base the caption on the visual.",
     caption ? `Current caption draft (may be replaced): """${String(caption).slice(0, 1500)}"""` : "",
-    hashtags.length ? `Current hashtags: ${hashtags.join(", ")}` : "",
     `Return ONLY a JSON object with keys:`,
     `"caption": an engaging Instagram caption, 2-5 short lines, ending with a question to drive comments, no hashtags inside;`,
     `"hashtags": exactly 5 relevant hashtags without the # sign, mixing niche and broader tags (Instagram allows at most 5).`,
   ];
+  console.log(`[ai] mode=${mode} brief=${hasBrief ? String(brief).length + " chars" : "none"} frame=${!!framePath}`);
   const prompt = lines.filter(Boolean).join("\n");
   const r = await run(CLAUDE_CMD[0], fill(CLAUDE_CMD.slice(1), { prompt }), { timeoutMs: 180000, cwd: MEDIA });
   if (framePath) fs.rmSync(framePath, { force: true });
@@ -178,7 +190,7 @@ app.post("/api/ai", async (req, res) => {
   const j = extractJson(String(text)) || extractJson(r.out);
   if (!j) return res.status(500).json({ error: "Could not parse Claude's answer", log: String(text).slice(0, 800) });
   const tags = (j.hashtags || []).map((t) => String(t).replace(/^#/, "").replace(/\s+/g, "")).filter(Boolean).slice(0, 5);
-  res.json({ musicPrompt: String(j.musicPrompt || ""), caption: String(j.caption || ""), hashtags: tags });
+  res.json({ musicPrompt: String(j.musicPrompt || ""), caption: String(j.caption || ""), hashtags: tags, usedBrief: hasBrief, mode });
 });
 
 // find the JSON object with our keys anywhere in a model answer
