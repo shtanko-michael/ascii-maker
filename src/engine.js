@@ -138,13 +138,23 @@ function sample(canvas, cols, rows) {
 }
 
 // cw/ch = character cell width/height in px (can differ for tall/wide glyphs)
-// draw a preset (authored for 720x860) into a band of the full canvas and stretch its top/bottom
-// rows outward so sky and ground reach the frame edges
-function placeBand(src, w, h, y0, bh) {
+// put the subject band into the full frame: underneath, a blurred, dimmed copy of the same
+// scene stretched to the whole frame (no hard edges, no smeared stripes); the band itself
+// fades into it over `feather` px at the top and bottom
+function placeBand(src, w, h, y0, bh, feather = 90) {
   const c = makeCanvas(w, h), g = c.getContext("2d");
-  g.drawImage(src, 0, 0, w, 1, 0, 0, w, y0 + 1);                       // top edge -> up
-  g.drawImage(src, 0, bh - 1, w, 1, 0, y0 + bh - 1, w, h - y0 - bh + 1); // bottom edge -> down
-  g.drawImage(src, 0, y0);
+  const k = Math.max(w / src.width, h / src.height);
+  g.filter = "blur(28px)"; g.globalAlpha = 0.32;
+  g.drawImage(src, (w - src.width * k) / 2, (h - src.height * k) / 2, src.width * k, src.height * k);
+  g.filter = "none"; g.globalAlpha = 1;
+  const band = makeCanvas(w, bh), bg = band.getContext("2d");
+  bg.drawImage(src, 0, 0);
+  bg.globalCompositeOperation = "destination-in";
+  const grad = bg.createLinearGradient(0, 0, 0, bh), f = Math.min(0.45, feather / bh);
+  grad.addColorStop(0, "rgba(0,0,0,0)"); grad.addColorStop(f, "rgba(0,0,0,1)");
+  grad.addColorStop(1 - f, "rgba(0,0,0,1)"); grad.addColorStop(1, "rgba(0,0,0,0)");
+  bg.fillStyle = grad; bg.fillRect(0, 0, w, bh);
+  g.drawImage(band, 0, y0);
   return c;
 }
 
