@@ -27,7 +27,7 @@
 | ✨ **Claude** | Your local `claude` CLI looks at the current frame and writes the music prompt, the caption and **5 hashtags** |
 | #️⃣ **Caption & hashtags** | Caption editor with a 2200-character counter; hashtags capped at **5**, the Instagram limit; one-click copy |
 | 🎵 **AI music** | Generates a track with the **ElevenLabs CLI** (REST fallback) and a **live progress bar**: stage, %, elapsed, ETA and bytes received |
-| 📤 **Instagram publishing** | Several Instagram accounts; publish now or schedule, with a progress bar; queue of scheduled posts; AI-content label; per-account daily quota |
+| 📤 **Instagram publishing** | Several accounts shared by all tabs; each tab chooses one or more targets; publish now or schedule, with a progress bar; queue of scheduled posts; AI-content label; per-account daily quota |
 | ⬇ **Export** | Records the canvas and the music into a video; the local server converts it to an Instagram-ready **MP4** with ffmpeg |
 
 ## 📸 Screenshots
@@ -114,7 +114,9 @@ Publishing uses the official **Instagram API with Instagram Login**. You need **
 2. In **Instagram → API setup with Instagram login**, add each Instagram account under **Generate access tokens**. In development mode an account must accept the tester invite: Instagram → Settings → Apps and websites → Tester invites.
 3. Click **Generate token** next to the account and copy the token.
 
-**2. Add accounts in the studio.** Open **Instagram → Add account**, paste the token and click **Add**. Repeat for every account. The tokens last about 60 days; the server refreshes them automatically.
+**2. Add accounts in the studio.** Click **◎ Accounts** in the top bar, paste the token and click **Add**. Repeat for every account.
+Accounts are **shared by all tabs**. Each tab has its own **Post to** selection, so one scene can go to one account and another to two at once. The video is recorded and converted once, then published to the chosen accounts one after another.
+The tokens last about 60 days; the server refreshes them automatically.
 
 **3. Public URL for the video.** Instagram downloads the MP4 itself, so it must be reachable from the internet:
 - **Easiest:** install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared` · `brew install cloudflared`). While publishing, the server opens a free temporary `*.trycloudflare.com` tunnel and shares only a one-off randomly named copy of the video, which is deleted after publishing.

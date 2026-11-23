@@ -38,6 +38,7 @@ export default function App() {
   const [igJobs, setIgJobs] = useState({});      // tabId -> publish progress
   const [queue, setQueue] = useState([]);
   const [tokenInput, setTokenInput] = useState("");
+  const [showAccounts, setShowAccounts] = useState(false);
   const [when, setWhen] = useState(() => new Date(Date.now() + 3600e3 - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 16));
   const [, bump] = useState(0);
 
@@ -242,7 +243,10 @@ export default function App() {
   }
 
   // ---------- Instagram ----------
-  const igAccount = ig.accounts.find((a) => a.id === p.igAccount) || (ig.accounts.length === 1 ? ig.accounts[0] : null);
+  // accounts are global (stored on the server); each tab only keeps the list of targets it posts to
+  const chosen = p.igTargets ?? (p.igAccount ? [p.igAccount] : []);
+  const targets = ig.accounts.filter((a) => chosen.includes(a.id));
+  const toggleTarget = (accId) => set({ igTargets: chosen.includes(accId) ? chosen.filter((x) => x !== accId) : [...chosen, accId] });
   const setIgJob = (id, v) => setIgJobs((j) => ({ ...j, [id]: v && { ...(j[id] || {}), ...v } }));
 
   async function addToken() {
@@ -253,34 +257,53 @@ export default function App() {
   }
   async function removeAccount(id) { await fetch(`/api/ig/accounts/${id}`, { method: "DELETE" }); loadIg(); }
 
-  // record -> mp4 -> publish now, or put into the schedule queue
+  // record once -> mp4 once -> publish to every chosen account (one after another), or queue them
   async function publishReel(scheduleAt) {
-    const id = p.id, acc = igAccount;
-    if (!acc) return setLog("Pick an Instagram account first");
-    const body = { accountId: acc.id, caption: fullText, aiLabel: p.aiLabel, title: p.name };
+    const id = p.id, accs = targets;
+    if (!accs.length) return setLog("Choose at least one account to post to");
+    const base = { caption: fullText, aiLabel: p.aiLabel, title: p.name };
+    const results = [];
     try {
-      setIgJob(id, { state: "running", stage: "Recording", progress: 0, account: acc.username });
+      setIgJob(id, { state: "running", stage: "Recording", progress: 0, results: [] });
       const blob = await recordWebm((f) => setIgJob(id, { progress: f * 0.3, stage: "Recording" }));
       setIgJob(id, { stage: "Converting to MP4", progress: 0.32 });
-      body.video = await toMp4(blob);
+      const video = await toMp4(blob);
       if (scheduleAt) {
-        const r = await fetch("/api/ig/queue", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...body, publishAt: new Date(scheduleAt).toISOString() }) });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error);
-        setIgJob(id, { state: "done", stage: `Scheduled for ${new Date(j.publishAt).toLocaleString()}`, progress: 1 });
+        for (const acc of accs) {
+          const r = await fetch("/api/ig/queue", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...base, video, accountId: acc.id, publishAt: new Date(scheduleAt).toISOString() }) });
+          const j = await r.json();
+          results.push(r.ok ? { username: acc.username, ok: true } : { username: acc.username, error: j.error });
+        }
+        const failed = results.filter((x) => x.error);
+        setIgJob(id, { state: failed.length ? "error" : "done", progress: 1, results,
+          stage: `Scheduled for ${new Date(scheduleAt).toLocaleString()}`,
+          error: failed.map((x) => `@${x.username}: ${x.error}`).join("\n") || undefined });
         loadIg(); return;
       }
-      const r = await fetch("/api/ig/publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const { id: jobId, error } = await r.json();
-      if (!r.ok) throw new Error(error);
-      for (;;) {
-        await new Promise((res) => setTimeout(res, 1000));
-        const s = await (await fetch(`/api/ig/publish/${jobId}`)).json();
-        setIgJob(id, { state: s.state, stage: s.stage, progress: 0.35 + 0.65 * s.progress, elapsedMs: s.elapsedMs, permalink: s.permalink, error: s.error });
-        if (s.state !== "running") { loadIg(); return; }
+      for (let k = 0; k < accs.length; k++) {
+        const acc = accs[k], span = 0.65 / accs.length, from = 0.35 + k * span;
+        try {
+          const r = await fetch("/api/ig/publish", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...base, video, accountId: acc.id }) });
+          const { id: jobId, error } = await r.json();
+          if (!r.ok) throw new Error(error);
+          for (;;) {
+            await new Promise((res) => setTimeout(res, 1000));
+            const s = await (await fetch(`/api/ig/publish/${jobId}`)).json();
+            setIgJob(id, { stage: `@${acc.username}: ${s.stage}`, progress: from + span * s.progress, elapsedMs: s.elapsedMs });
+            if (s.state === "done") { results.push({ username: acc.username, permalink: s.permalink }); break; }
+            if (s.state === "error") throw new Error(s.error);
+          }
+        } catch (e) { results.push({ username: acc.username, error: String(e.message || e) }); }
+        setIgJob(id, { results: [...results] });
       }
-    } catch (e) { setIgJob(id, { state: "error", stage: "Failed", error: String(e.message || e) }); }
+      const failed = results.filter((x) => x.error);
+      setIgJob(id, { state: failed.length === results.length ? "error" : "done", progress: 1,
+        stage: failed.length ? `Published ${results.length - failed.length} of ${results.length}` : "Published", results,
+        error: failed.length ? failed.map((x) => `@${x.username}: ${x.error}`).join("\n") : undefined });
+      loadIg();
+    } catch (e) { setIgJob(id, { state: "error", stage: "Failed", error: String(e.message || e), results }); }
   }
 
   const job = jobs[p.id], aiJob = ai[p.id], igJob = igJobs[p.id];
@@ -395,6 +418,9 @@ export default function App() {
           <button className="tabbtn" onClick={() => addTab()} title="New tab">＋</button>
           <button className="tabbtn" onClick={() => addTab(p)} title="Duplicate tab">⧉</button>
           <span className="saved">{saved}</span>
+          <button className="tabbtn acctbtn" onClick={() => setShowAccounts(true)} title="Instagram accounts (shared by all tabs)">
+            ◎ Accounts{ig.accounts.length ? ` · ${ig.accounts.length}` : ""}
+          </button>
         </div>
         <div className="tabs">
           {["reels", "feed", "raw"].map((v) => <button key={v} className={view === v ? "on" : ""} onClick={() => setView(v)}>{v}</button>)}
@@ -409,6 +435,31 @@ export default function App() {
         </div>
         {log && <pre className="log">{log}</pre>}
       </main>
+
+      {showAccounts && (
+        <div className="modal" onClick={() => setShowAccounts(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheethead"><h2>Instagram accounts</h2><b onClick={() => setShowAccounts(false)}>×</b></div>
+            <p className="hint">Shared by all tabs. Each tab picks where to post.</p>
+            {ig.accounts.map((a) => (
+              <div key={a.id} className="acct">
+                {a.avatar ? <img src={a.avatar} alt="" /> : <span className="ava" />}
+                <span className="aname">@{a.username}
+                  <small>{a.limit ? `${a.limit.used}/${a.limit.total} posts today · ` : ""}token {Math.max(0, Math.round((a.expiresAt - Date.now()) / 864e5))} d</small>
+                </span>
+                <button onClick={() => removeAccount(a.id)}>Disconnect</button>
+              </div>
+            ))}
+            <h2>Add account</h2>
+            {ig.oauth && <a className="btn wide center" href="/api/ig/login" target="_blank" rel="noreferrer">Log in with Instagram</a>}
+            <div className="row">
+              <input placeholder="Paste access token" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} style={{ flex: 1, width: "auto" }} />
+              <button disabled={!tokenInput} onClick={addToken}>Add</button>
+            </div>
+            <p className="hint">Meta app → Instagram → API setup → Generate token. See README.</p>
+          </div>
+        </div>
+      )}
 
       <aside className="panel">
         <Section title="Claude">
@@ -441,44 +492,41 @@ export default function App() {
           {musicUrl && <audio key={p.id + musicUrl} ref={audioRef} src={musicUrl} loop controls crossOrigin="anonymous" />}
         </Section>
 
-        <Section title="Instagram">
-          {ig.accounts.map((a) => (
-            <label key={a.id} className={"acct" + (igAccount?.id === a.id ? " on" : "")}>
-              <input type="radio" name="igacct" checked={igAccount?.id === a.id} onChange={() => set({ igAccount: a.id })} />
-              {a.avatar ? <img src={a.avatar} alt="" /> : <span className="ava" />}
-              <span className="aname">@{a.username}
-                <small>{a.limit ? `${a.limit.used}/${a.limit.total} today · ` : ""}token {Math.max(0, Math.round((a.expiresAt - Date.now()) / 864e5))} d</small>
-              </span>
-              <b onClick={(e) => { e.preventDefault(); removeAccount(a.id); }} title="Disconnect">×</b>
-            </label>
-          ))}
-          <details className="group" open={!ig.accounts.length}>
-            <summary>Add account</summary>
-            {ig.oauth && <a className="btn wide center" href="/api/ig/login" target="_blank" rel="noreferrer">Log in with Instagram</a>}
-            <div className="row">
-              <input placeholder="Paste access token" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} />
-              <button disabled={!tokenInput} onClick={addToken}>Add</button>
-            </div>
-            <p className="hint">Meta app → Instagram → API setup → Generate token. See README.</p>
-          </details>
+        <Section title="Post to Instagram">
+          {!ig.accounts.length && <p className="hint">No accounts yet. <a href="#" onClick={(e) => { e.preventDefault(); setShowAccounts(true); }}>Connect an account</a></p>}
+          <div className="targets">
+            {ig.accounts.map((a) => (
+              <label key={a.id} className={"target" + (chosen.includes(a.id) ? " on" : "")}>
+                <input type="checkbox" checked={chosen.includes(a.id)} onChange={() => toggleTarget(a.id)} />
+                {a.avatar ? <img src={a.avatar} alt="" /> : <span className="ava" />}@{a.username}
+              </label>
+            ))}
+          </div>
           {ig.accounts.length > 0 && <>
             <Toggle label="Label as AI-generated" v={p.aiLabel} set={field("aiLabel")} />
             <div className="row">
-              <button className="primary" disabled={igJob?.state === "running" || !igAccount || !health?.ffmpeg} onClick={() => publishReel()}>
-                ⇪ Publish{igAccount ? ` to @${igAccount.username}` : ""}
+              <button className="primary" disabled={igJob?.state === "running" || !targets.length || !health?.ffmpeg} onClick={() => publishReel()}>
+                ⇪ Publish{targets.length ? ` to ${targets.length === 1 ? "@" + targets[0].username : targets.length + " accounts"}` : ""}
               </button>
             </div>
             <div className="row">
               <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} style={{ flex: 1 }} />
-              <button disabled={igJob?.state === "running" || !igAccount || !health?.ffmpeg} onClick={() => publishReel(when)}>Schedule</button>
+              <button disabled={igJob?.state === "running" || !targets.length || !health?.ffmpeg} onClick={() => publishReel(when)}>Schedule</button>
             </div>
-            {!health?.ffmpeg && <p className="hint warn">Publishing needs ffmpeg for the MP4.</p>}
+          {!health?.ffmpeg && <p className="hint warn">Publishing needs ffmpeg for the MP4.</p>}
           </>}
           {igJob && igJob.state !== "error" && (
             <Progress value={igJob.progress} label={`${igJob.stage} · ${Math.round(igJob.progress * 100)}%`}
-              sub={igJob.permalink ? <a href={igJob.permalink} target="_blank" rel="noreferrer">Open the Reel ↗</a> : igJob.elapsedMs ? `${fmt(igJob.elapsedMs)} on Instagram's side` : null} />
+              sub={igJob.state === "running" && igJob.elapsedMs ? `${fmt(igJob.elapsedMs)} on Instagram's side` : null} />
           )}
-          {igJob?.state === "error" && <pre className="log err">{igJob.error}</pre>}
+          {igJob?.results?.length > 0 && (
+            <ul className="results">
+              {igJob.results.map((r) => <li key={r.username} className={r.error ? "bad" : "ok"}>
+                @{r.username} {r.permalink ? <a href={r.permalink} target="_blank" rel="noreferrer">open ↗</a> : r.error ? "failed" : "✓"}
+              </li>)}
+            </ul>
+          )}
+          {igJob?.error && <pre className="log err">{igJob.error}</pre>}
           {queue.length > 0 && <>
             <h2>Queue</h2>
             {queue.slice().sort((a, b) => a.publishAt - b.publishAt).map((q) => (
