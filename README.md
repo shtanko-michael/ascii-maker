@@ -18,13 +18,13 @@
 |---|---|
 | 🖼 **Scenes** | Built-in procedural scenes (*Moon*, *Monolith*, *Cross*) or **your own image** |
 | 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`), cell size, colour tints |
-| 🌧 **Animation** | Falling glowing streaks, a travelling pulse, flicker; all loop seamlessly |
+| 🌧 **Animation** | Falling glowing streaks, a travelling pulse, flicker; seamless loops from 2 to **60 s** |
 | 🧾 **Code panel** | The engine's own source code scrolls under the scene, like in the creative-coding reels |
 | 🛡 **Reels-safe layout** | Scene and code are placed so the Instagram UI never covers them; safe-zone overlay in the preview |
 | 📱 **Instagram preview** | **Reels**, **Feed 4:5** and **Raw** views with a realistic overlay: avatar, caption with "… more", music ticker, side actions |
 | 🗂 **Tabs with autosave** | Every scene is a tab; settings, image, caption and music are saved automatically (localStorage + IndexedDB) and survive reloads |
 | 🎛 **Fine-tuning** | Tone (brightness, contrast, gamma, threshold, invert), glyph grid (cell width/height, font scale, bold, jitter), colour modes, streak length, speed, direction, source, wobble, pulse, flicker, vignette, scanlines |
-| ✨ **Claude** | Your local `claude` CLI looks at the current frame and writes the music prompt, the caption and **5 hashtags** |
+| ✨ **Claude** | Write a short **brief**, and your local `claude` CLI writes the caption and **5 hashtags** from it while looking at the current frame; a separate button writes the music prompt |
 | #️⃣ **Caption & hashtags** | Caption editor with a 2200-character counter; hashtags capped at **5**, the Instagram limit; one-click copy |
 | 🎵 **AI music** | Generates a track with the **ElevenLabs CLI** (REST fallback) and a **live progress bar**: stage, %, elapsed, ETA and bytes received |
 | 📤 **Instagram publishing** | Several accounts shared by all tabs; each tab chooses one or more targets; publish now or schedule, with a progress bar; queue of scheduled posts; AI-content label; per-account daily quota |

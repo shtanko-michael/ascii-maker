@@ -33,7 +33,9 @@ export default function App() {
   const [log, setLog] = useState("");
   const [busy, setBusy] = useState("");
   const [jobs, setJobs] = useState({});          // tabId -> music job progress
-  const [ai, setAi] = useState({});              // tabId -> {started}
+  const [ai, setAi] = useState({});              // "tabId:mode" -> {started}
+  const [aiErr, setAiErr] = useState({});
+  const [confirmReset, setConfirmReset] = useState(false);
   const [ig, setIg] = useState({ accounts: [] });  // connected Instagram accounts
   const [igJobs, setIgJobs] = useState({});      // tabId -> publish progress
   const [queue, setQueue] = useState([]);
@@ -132,6 +134,10 @@ export default function App() {
     });
   };
 
+  // every visual setting back to the defaults of a new project (source, texts and music are kept)
+  const VISUAL_KEYS = ["layout", "seed", "ramp", "tint", "streaks", "streakGain", "pulse", "loopSec", ...FINE_KEYS];
+  const resetVisual = () => { const d = newProject(); set(Object.fromEntries(VISUAL_KEYS.map((k) => [k, d[k]]))); };
+
   // ---------- inputs ----------
   const onImage = async (f) => {
     if (!f) return;
@@ -178,25 +184,25 @@ export default function App() {
     }
   }
 
-  // ---------- Claude: prompt + caption + hashtags ----------
-  async function askClaude() {
-    const id = p.id;
-    setAi((a) => ({ ...a, [id]: { started: Date.now() } }));
+  // ---------- Claude: caption + hashtags (from the brief) or music prompt ----------
+  async function askClaude(mode) {
+    const id = p.id, key = `${id}:${mode}`;
+    setAi((a) => ({ ...a, [key]: { started: Date.now() } }));
     try {
       const r = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ frame: canvasRef.current.toDataURL("image/png"), stats: layers.stats,
+        body: JSON.stringify({ mode, brief: p.brief, frame: canvasRef.current.toDataURL("image/png"), stats: layers.stats,
           settings: { preset: p.hasImage ? "custom image" : p.preset, tint: p.tint, glyphs: p.ramp, loopSec: p.loopSec, direction: p.direction },
-          caption: p.caption, hashtags: p.tags, musicSec: p.musicSec }) });
+          caption: p.caption, hashtags: p.tags, musicSec: p.musicSec, musicPrompt: p.prompt }) });
       const j = await r.json();
       if (!r.ok) throw new Error(`${j.error}\n${j.log || ""}`);
       const patch = {};
-      if (j.musicPrompt) patch.prompt = j.musicPrompt;
-      if (j.caption) patch.caption = j.caption;
-      if (j.hashtags?.length) patch.tags = j.hashtags.slice(0, MAX_TAGS);
+      if (mode === "music" && j.musicPrompt) patch.prompt = j.musicPrompt;
+      if (mode === "caption" && j.caption) patch.caption = j.caption;
+      if (mode === "caption" && j.hashtags?.length) patch.tags = j.hashtags.slice(0, MAX_TAGS);
       updateTab(id, patch);
-      setLog("Claude filled the music prompt, caption and hashtags.");
-    } catch (e) { setLog(String(e.message || e)); }
-    setAi((a) => { const n = { ...a }; delete n[id]; return n; });
+      setAiErr((e) => ({ ...e, [key]: null }));
+    } catch (e) { setAiErr((x) => ({ ...x, [key]: String(e.message || e) })); }
+    setAi((a) => { const n = { ...a }; delete n[key]; return n; });
   }
 
   // ---------- export ----------
@@ -218,7 +224,7 @@ export default function App() {
     const chunks = []; rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     const done = new Promise((res) => (rec.onstop = res));
     tRef.current = 0; setPlaying(true); rec.start();
-    const total = Math.max(p.loopSec, musicUrl ? Math.min(p.musicSec, 90) : p.loopSec * 2) * 1000, t0 = Date.now();
+    const total = Math.max(p.loopSec, musicUrl ? Math.min(p.musicSec, 90) : p.loopSec < 15 ? p.loopSec * 2 : p.loopSec) * 1000, t0 = Date.now();
     while (Date.now() - t0 < total) { onProgress((Date.now() - t0) / total); await new Promise((r) => setTimeout(r, 250)); }
     rec.stop(); await done;
     return new Blob(chunks, { type: "video/webm" });
@@ -306,7 +312,7 @@ export default function App() {
     } catch (e) { setIgJob(id, { state: "error", stage: "Failed", error: String(e.message || e), results }); }
   }
 
-  const job = jobs[p.id], aiJob = ai[p.id], igJob = igJobs[p.id];
+  const job = jobs[p.id], capJob = ai[`${p.id}:caption`], musJob = ai[`${p.id}:music`], igJob = igJobs[p.id];
 
   // ---------- UI ----------
   return (
@@ -341,11 +347,10 @@ export default function App() {
           <Slider label="Streaks" v={p.streaks} set={field("streaks")} min={0} max={300} />
           <Slider label="Streak glow" v={p.streakGain} set={field("streakGain")} min={0} max={1.5} step={0.05} />
           <Slider label="Pulse" v={p.pulse} set={field("pulse")} min={0} max={1} step={0.05} />
-          <Slider label="Loop, s" v={p.loopSec} set={field("loopSec")} min={2} max={15} />
+          <Slider label="Loop, s" v={p.loopSec} set={field("loopSec")} min={2} max={60} />
           <div className="row">
             <button onClick={() => set({ seed: Math.floor(Math.random() * 1e6) })}>🎲 Reseed</button>
             <button onClick={() => setPlaying(!playing)}>{playing ? "❚❚ Pause" : "▶ Play"}</button>
-            <button onClick={() => set(FINE_DEFAULTS)}>Reset fine-tune</button>
           </div>
         </Section>
 
@@ -400,6 +405,13 @@ export default function App() {
           <Slider label="Vignette" v={p.vignette} set={field("vignette")} min={0} max={1} step={0.05} />
           <Slider label="Scanlines" v={p.scanlines} set={field("scanlines")} min={0} max={0.8} step={0.05} />
         </Group>
+        <div className="resetbar">
+          <button className={"wide" + (confirmReset ? " danger" : "")} onBlur={() => setConfirmReset(false)}
+            onClick={() => { if (!confirmReset) return setConfirmReset(true); resetVisual(); setConfirmReset(false); }}>
+            {confirmReset ? "Click again to reset everything" : "↺ Reset all settings"}
+          </button>
+          <p className="hint">Resets look, fine-tuning and layout for this tab. Source image, caption and music stay.</p>
+        </div>
       </aside>
 
       <main className="stage">
@@ -411,7 +423,7 @@ export default function App() {
                 ? <input autoFocus defaultValue={t.name} onBlur={(e) => { updateTab(t.id, { name: e.target.value || t.name }); setRenaming(null); }}
                     onKeyDown={(e) => e.key === "Enter" && e.target.blur()} />
                 : <span>{t.name}</span>}
-              {(jobs[t.id]?.state === "running" || ai[t.id] || igJobs[t.id]?.state === "running") && <i className="dot" />}
+              {(jobs[t.id]?.state === "running" || ai[`${t.id}:caption`] || ai[`${t.id}:music`] || igJobs[t.id]?.state === "running") && <i className="dot" />}
               {state.tabs.length > 1 && <b onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>×</b>}
             </div>
           ))}
@@ -462,22 +474,48 @@ export default function App() {
         </div>
       )}
 
-      <aside className="panel">
-        <Section title="Claude">
-          <button className="primary wide" disabled={!!aiJob} onClick={askClaude}>
-            {aiJob ? "Claude is looking at the frame…" : "✨ Write prompt, caption & tags"}
+      <aside className="cards">
+        <Card title="Caption & hashtags" sub="Claude">
+          <label className="lbl">Brief <small>what the post is about, tone, language, call to action</small></label>
+          <textarea rows={3} value={p.brief} placeholder="e.g. Launching my ASCII series. Mysterious tone, English, ask followers what to animate next."
+            onChange={(e) => set({ brief: e.target.value })} />
+          <button className="primary wide" disabled={!!capJob} onClick={() => askClaude("caption")}>
+            {capJob ? "Claude is writing…" : "✨ Generate caption & tags"}
           </button>
-          {aiJob && <Progress indeterminate label={<Elapsed since={aiJob.started} />} />}
-          <p className="hint">Runs your local <code>claude</code> CLI on the current frame.</p>
-        </Section>
+          {capJob && <Progress indeterminate label={<Elapsed since={capJob.started} />} />}
+          {aiErr[`${p.id}:caption`] && <pre className="log err">{aiErr[`${p.id}:caption`]}</pre>}
+          <p className="hint">Claude reads the brief and looks at the current frame.</p>
 
-        <Section title="Music · ElevenLabs">
+          <label className="lbl">Username</label>
+          <input value={p.username} onChange={(e) => set({ username: e.target.value })} />
+          <label className="lbl">Caption <small>{fullText.length}/2200</small></label>
+          <textarea rows={7} value={p.caption} onChange={(e) => set({ caption: e.target.value })} />
+          <label className="lbl">Hashtags <small>{p.tags.length}/{MAX_TAGS}</small></label>
+          <div className="chips">
+            {p.tags.map((t) => <span key={t} className="chip" onClick={() => set({ tags: p.tags.filter((x) => x !== t) })}>#{t} ×</span>)}
+          </div>
+          <input placeholder={p.tags.length >= MAX_TAGS ? "Instagram allows 5 hashtags" : "add tag + Enter"} disabled={p.tags.length >= MAX_TAGS}
+            value={tagInput} onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { addTag(tagInput); setTagInput(""); } }} />
+          <div className="chips muted">
+            {SUGGESTED.filter((t) => !p.tags.includes(t)).map((t) => (
+              <span key={t} className={"chip" + (p.tags.length >= MAX_TAGS ? " off" : "")} onClick={() => addTag(t)}>+#{t}</span>
+            ))}
+          </div>
+          <button className="wide" onClick={() => navigator.clipboard.writeText(fullText)}>Copy caption + tags</button>
+        </Card>
+
+        <Card title="Music" sub="ElevenLabs">
           <Status health={health} />
+          <label className="lbl">Music prompt</label>
           <textarea rows={5} value={p.prompt} placeholder={describeVisual(layers.stats, opts)} onChange={(e) => set({ prompt: e.target.value })} />
           <div className="row">
+            <button disabled={!!musJob} onClick={() => askClaude("music")}>{musJob ? "Claude is listening…" : "✨ Prompt with Claude"}</button>
             <button onClick={() => set({ prompt: describeVisual(layers.stats, opts) })}>↻ From visual</button>
-            <Toggle label="Instrumental" v={p.instrumental} set={field("instrumental")} />
           </div>
+          {musJob && <Progress indeterminate label={<Elapsed since={musJob.started} />} />}
+          {aiErr[`${p.id}:music`] && <pre className="log err">{aiErr[`${p.id}:music`]}</pre>}
+          <Toggle label="Instrumental" v={p.instrumental} set={field("instrumental")} />
           <Slider label="Length, s" v={p.musicSec} set={field("musicSec")} min={10} max={90} step={5} />
           <div className="row">
             <button className="primary" disabled={job?.state === "running"} onClick={generateMusic}>
@@ -491,9 +529,9 @@ export default function App() {
           )}
           {job?.state === "error" && <pre className="log err">{job.error}</pre>}
           {musicUrl && <audio key={p.id + musicUrl} ref={audioRef} src={musicUrl} loop controls crossOrigin="anonymous" />}
-        </Section>
+        </Card>
 
-        <Section title="Post to Instagram">
+        <Card title="Publish" sub="Instagram">
           {!ig.accounts.length && <p className="hint">No accounts yet. <a href="#" onClick={(e) => { e.preventDefault(); setShowAccounts(true); }}>Connect an account</a></p>}
           <div className="targets">
             {ig.accounts.map((a) => (
@@ -542,28 +580,8 @@ export default function App() {
             ))}
             <p className="hint">Scheduled posts go out while the local server is running.</p>
           </>}
-        </Section>
+        </Card>
 
-        <Section title="Post">
-          <label className="lbl">Username</label>
-          <input value={p.username} onChange={(e) => set({ username: e.target.value })} />
-          <label className="lbl">Caption <small>{fullText.length}/2200</small></label>
-          <textarea rows={8} value={p.caption} onChange={(e) => set({ caption: e.target.value })} />
-        </Section>
-        <Section title={`Hashtags ${p.tags.length}/${MAX_TAGS}`}>
-          <div className="chips">
-            {p.tags.map((t) => <span key={t} className="chip" onClick={() => set({ tags: p.tags.filter((x) => x !== t) })}>#{t} ×</span>)}
-          </div>
-          <input placeholder={p.tags.length >= MAX_TAGS ? "Instagram allows 5 hashtags" : "add tag + Enter"} disabled={p.tags.length >= MAX_TAGS}
-            value={tagInput} onChange={(e) => setTagInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { addTag(tagInput); setTagInput(""); } }} />
-          <div className="chips muted">
-            {SUGGESTED.filter((t) => !p.tags.includes(t)).map((t) => (
-              <span key={t} className={"chip" + (p.tags.length >= MAX_TAGS ? " off" : "")} onClick={() => addTag(t)}>+#{t}</span>
-            ))}
-          </div>
-        </Section>
-        <button className="primary wide" onClick={() => navigator.clipboard.writeText(fullText)}>Copy caption + tags</button>
       </aside>
     </div>
   );
@@ -621,6 +639,7 @@ function Phone({ view, guides, username, caption, tags, musicName, expanded, set
 }
 
 const Section = ({ title, children }) => <section><h2>{title}</h2>{children}</section>;
+const Card = ({ title, sub, children }) => <section className="card"><h3>{title}{sub && <small>{sub}</small>}</h3>{children}</section>;
 const Group = ({ title, children }) => <details className="group"><summary>{title}</summary>{children}</details>;
 const Slider = ({ label, v, set, min, max, step = 1 }) => (
   <label className="slider"><span>{label}</span><input type="range" min={min} max={max} step={step} value={v ?? min} onChange={(e) => set(Number(e.target.value))} /><em>{v}</em></label>

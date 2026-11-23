@@ -141,3 +141,14 @@ details.group[open] summary::before { content: "▾ "; }
 .sheethead { display: flex; justify-content: space-between; align-items: center; }
 .sheethead h2 { margin: 0; } .sheethead b { cursor: pointer; font-size: 20px; color: var(--mut); }
 .sheet .acct button { padding: 4px 10px; font-size: 12px; }
+
+/* right column = separate cards */
+.cards { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; max-height: calc(100vh - 40px); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; }
+.card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: baseline; gap: 8px; }
+.card h3 small { font-size: 11px; color: var(--mut); font-weight: 500; text-transform: uppercase; letter-spacing: 1.2px; }
+.card .lbl small { font-size: 11px; }
+.card .wide { margin-top: 10px; }
+.resetbar { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
+button.danger { border-color: var(--red); color: #ffb4a8; background: #2a1012; }
+@media (max-width: 1150px) { .cards { max-height: none; } }

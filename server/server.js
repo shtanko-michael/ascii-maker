@@ -141,24 +141,35 @@ app.get("/api/music/:id", (req, res) => {
 
 // ---------------- Claude: music prompt + caption + hashtags ----------------
 app.post("/api/ai", async (req, res) => {
-  const { frame, stats = {}, settings = {}, caption = "", hashtags = [], musicSec = 30, language = "English" } = req.body || {};
+  const { mode = "caption", brief = "", frame, stats = {}, settings = {}, caption = "", hashtags = [], musicSec = 30, musicPrompt = "" } = req.body || {};
   let framePath = "";
   if (typeof frame === "string" && frame.startsWith("data:image/png;base64,")) {
     framePath = path.join(MEDIA, "frames", `frame_${Date.now()}.png`);
     fs.writeFileSync(framePath, Buffer.from(frame.split(",")[1], "base64"));
   }
-  const prompt = [
+  const common = [
     "You help publish a looping ASCII-art animation as an Instagram Reel.",
-    framePath ? `First, read the image file at ${framePath} — it is the current frame.` : "",
+    framePath ? `First, read the image file at ${framePath}: it is the current frame.` : "",
     `Scene stats: brightness ${(+stats.brightness || 0).toFixed(3)}, redness ${(+stats.redness || 0).toFixed(3)}.`,
     `Visual settings: ${JSON.stringify(settings).slice(0, 800)}.`,
-    caption ? `Current caption draft: """${String(caption).slice(0, 1500)}"""` : "",
+  ];
+  const lines = mode === "music" ? [
+    ...common,
+    brief ? `The author's brief for the post (use it for mood): """${String(brief).slice(0, 1500)}"""` : "",
+    musicPrompt ? `Current music prompt draft: """${String(musicPrompt).slice(0, 800)}"""` : "",
+    `Return ONLY a JSON object with one key:`,
+    `"musicPrompt": an English prompt for ElevenLabs Music (genre, mood, instruments, tempo, texture) that fits the visual, instrumental, loopable, ${musicSec} s, under 400 characters.`,
+  ] : [
+    ...common,
+    brief ? `The author's brief. Follow it closely, including its language and tone; the caption must be built on it:\n"""${String(brief).slice(0, 2000)}"""`
+      : "No brief was given; write in English and base the caption on the visual.",
+    caption ? `Current caption draft (may be replaced): """${String(caption).slice(0, 1500)}"""` : "",
     hashtags.length ? `Current hashtags: ${hashtags.join(", ")}` : "",
-    `Return ONLY a JSON object, no prose, with keys:`,
-    `"musicPrompt": an English prompt for ElevenLabs Music (genre, mood, instruments, tempo, texture), instrumental, loopable, ${musicSec} s, under 400 characters;`,
-    `"caption": an engaging Instagram caption in ${language}, 2-5 short lines, ending with a question to drive comments, no hashtags inside;`,
+    `Return ONLY a JSON object with keys:`,
+    `"caption": an engaging Instagram caption, 2-5 short lines, ending with a question to drive comments, no hashtags inside;`,
     `"hashtags": exactly 5 relevant hashtags without the # sign, mixing niche and broader tags (Instagram allows at most 5).`,
-  ].filter(Boolean).join("\n");
+  ];
+  const prompt = lines.filter(Boolean).join("\n");
   const r = await run(CLAUDE_CMD[0], fill(CLAUDE_CMD.slice(1), { prompt }), { timeoutMs: 180000, cwd: MEDIA });
   if (framePath) fs.rmSync(framePath, { force: true });
   if (r.code !== 0) return res.status(500).json({ error: "Claude CLI failed. Is `claude` installed and logged in?", log: (r.err || r.out).slice(-800) });

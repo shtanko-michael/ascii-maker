@@ -19,7 +19,7 @@ export function newProject(name = "Untitled", patch = {}) {
     ...FINE_DEFAULTS,
     username: "ascii.maker", caption: DEFAULT_CAPTION,
     tags: ["asciiart", "generativeart", "creativecoding", "codeart", "darkart"],
-    prompt: "", instrumental: true, musicSec: 30,
+    brief: "", prompt: "", instrumental: true, musicSec: 30,
     musicUrl: null, musicName: "Original audio", musicBlob: false,
     igTargets: null, aiLabel: true,
     ...patch,
