@@ -147,7 +147,8 @@ export function mountInstagram(app, { MEDIA, PORT }) {
     res.json({
       accounts: list,
       oauth: !!(process.env.IG_APP_ID && process.env.IG_APP_SECRET && process.env.IG_REDIRECT_URI),
-      publicUrl: process.env.PUBLIC_BASE_URL ? "custom" : tunnel?.url ? "tunnel" : "auto (cloudflared)",
+      publicUrl: process.env.PUBLIC_BASE_URL || (tunnel?.url ? tunnel.url : "auto (cloudflared)"),
+      redirectUri: process.env.IG_REDIRECT_URI || null,
     });
   });
 

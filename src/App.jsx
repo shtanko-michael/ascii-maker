@@ -451,7 +451,8 @@ export default function App() {
               </div>
             ))}
             <h2>Add account</h2>
-            {ig.oauth && <a className="btn wide center" href="/api/ig/login" target="_blank" rel="noreferrer">Log in with Instagram</a>}
+            {ig.oauth && <a className="btn wide center primary" href="/api/ig/login" target="_blank" rel="noreferrer">Log in with Instagram</a>}
+            {ig.redirectUri && <p className="hint">Redirect URI for the Meta app: <code>{ig.redirectUri}</code></p>}
             <div className="row">
               <input placeholder="Paste access token" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} style={{ flex: 1, width: "auto" }} />
               <button disabled={!tokenInput} onClick={addToken}>Add</button>
@@ -636,5 +637,7 @@ const Color = ({ label, v, set }) => (
 const Status = ({ health }) => {
   if (health === null) return <p className="hint">Checking local server…</p>;
   if (!health) return <p className="hint warn">Local server is offline — run <code>npm run dev</code>.</p>;
-  return <p className="hint">ElevenLabs CLI {health.cli ? "✓" : "✗"} · API key {health.apiKey ? "✓" : "–"} · Claude {health.claude ? "✓" : "✗"} · ffmpeg {health.ffmpeg ? "✓" : "✗"} · tunnel {health.cloudflared ? "✓" : "✗"}</p>;
+  return <p className="hint">ElevenLabs CLI {health.cli ? "✓" : "✗"} · API key {health.apiKey ? "✓" : "–"} · Claude {health.claude ? "✓" : "✗"} · ffmpeg {health.ffmpeg ? "✓" : "✗"} · tunnel {health.tunnel?.kind === "ngrok"
+    ? (health.tunnel.state === "online" ? "ngrok ✓" : `ngrok ${health.tunnel.state}`) : health.cloudflared ? "✓" : "✗"}
+    {health.tunnel?.error && <><br /><span className="warn">ngrok: {health.tunnel.error}</span></>}</p>;
 };

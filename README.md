@@ -119,7 +119,12 @@ Accounts are **shared by all tabs**. Each tab has its own **Post to** selection,
 The tokens last about 60 days; the server refreshes them automatically.
 
 **3. Public URL for the video.** Instagram downloads the MP4 itself, so it must be reachable from the internet:
-- **Easiest:** install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared` · `brew install cloudflared`). While publishing, the server opens a free temporary `*.trycloudflare.com` tunnel and shares only a one-off randomly named copy of the video, which is deleted after publishing.
+- **ngrok with a static domain (recommended):**
+  1. Sign up at [ngrok.com](https://ngrok.com), install it (`winget install ngrok.ngrok` · `brew install ngrok`) and run `ngrok config add-authtoken <your token>`.
+  2. In the ngrok dashboard → **Domains**, claim your free static domain, e.g. `my-name.ngrok-free.app`.
+  3. Put it in `.env` as `NGROK_DOMAIN=my-name.ngrok-free.app`.
+  `npm run dev` then starts the tunnel by itself. The domain is used both for video links and as the OAuth redirect `https://my-name.ngrok-free.app/api/ig/callback`, so the **Log in with Instagram** button works too.
+- **Quick, no account:** install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) (`winget install Cloudflare.cloudflared` · `brew install cloudflared`). While publishing, the server opens a free temporary `*.trycloudflare.com` tunnel and shares only a one-off randomly named copy of the video, which is deleted after publishing.
 - Or set `PUBLIC_BASE_URL` to your own public address.
 
 **Optional: "Log in with Instagram" button.** Set `IG_APP_ID`, `IG_APP_SECRET` and an HTTPS `IG_REDIRECT_URI` that points to `/api/ig/callback`, and register the same URI in the app.

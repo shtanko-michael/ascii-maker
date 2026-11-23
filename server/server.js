@@ -11,12 +11,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mountInstagram } from "./instagram.js";
+import { ngrok, setupNgrokEnv, startNgrok } from "./ngrok.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MEDIA = path.join(ROOT, "..", "media");
 fs.mkdirSync(path.join(MEDIA, "frames"), { recursive: true });
 
 const PORT = Number(process.env.PORT || 8787);
+setupNgrokEnv();   // fills PUBLIC_BASE_URL / IG_REDIRECT_URI from NGROK_DOMAIN before routes read them
 const FFMPEG = process.env.FFMPEG || "ffmpeg";
 const parseCmd = (env, def) => {
   try { return env ? JSON.parse(env) : def; } catch { console.warn("bad command JSON, using default"); return def; }
@@ -55,7 +57,10 @@ app.get("/api/health", async (_req, res) => {
     run(FFMPEG, ["-version"], { timeoutMs: 10000 }),
     run(process.env.CLOUDFLARED || "cloudflared", ["--version"], { timeoutMs: 10000 }),
   ]);
-  res.json({ cli: cli.code === 0, claude: claude.code === 0, ffmpeg: ff.code === 0, cloudflared: cf.code === 0 || !!process.env.PUBLIC_BASE_URL, apiKey: !!process.env.ELEVENLABS_API_KEY });
+  res.json({ cli: cli.code === 0, claude: claude.code === 0, ffmpeg: ff.code === 0, cloudflared: cf.code === 0 || !!process.env.PUBLIC_BASE_URL,
+    tunnel: process.env.NGROK_DOMAIN ? { kind: "ngrok", state: ngrok.state, url: process.env.PUBLIC_BASE_URL, error: ngrok.error }
+      : process.env.PUBLIC_BASE_URL ? { kind: "custom", state: "online", url: process.env.PUBLIC_BASE_URL }
+      : { kind: "cloudflared", state: cf.code === 0 ? "on demand" : "missing" }, apiKey: !!process.env.ELEVENLABS_API_KEY });
 });
 
 // ---------------- music jobs ----------------
@@ -199,4 +204,4 @@ if (fs.existsSync(DIST)) {
   app.get("*", (_req, res) => res.sendFile(path.join(DIST, "index.html")));
 }
 
-app.listen(PORT, () => console.log(`api on http://localhost:${PORT}`));
+app.listen(PORT, () => { console.log(`api on http://localhost:${PORT}`); startNgrok(PORT); });
