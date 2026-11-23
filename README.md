@@ -22,14 +22,17 @@
 | 🧾 **Code panel** | The engine's own source code scrolls under the scene, like in the creative-coding reels |
 | 🛡 **Reels-safe layout** | Scene and code are placed so the Instagram UI never covers them; safe-zone overlay in the preview |
 | 📱 **Instagram preview** | **Reels**, **Feed 4:5** and **Raw** views with a realistic overlay: avatar, caption with "… more", music ticker, side actions |
-| #️⃣ **Caption & hashtags** | Caption editor with a 2200-character counter, hashtag chips with a 30-tag limit and suggestions, one-click copy |
-| 🎵 **AI music** | Writes a music prompt **from the visual** (brightness, redness, tempo) and generates a track with the **ElevenLabs CLI** (REST API fallback) |
+| 🗂 **Tabs with autosave** | Every scene is a tab; settings, image, caption and music are saved automatically (localStorage + IndexedDB) and survive reloads |
+| 🎛 **Fine-tuning** | Tone (brightness, contrast, gamma, threshold, invert), glyph grid (cell width/height, font scale, bold, jitter), colour modes, streak length, speed, direction, source, wobble, pulse, flicker, vignette, scanlines |
+| ✨ **Claude** | Your local `claude` CLI looks at the current frame and writes the music prompt, the caption and **5 hashtags** |
+| #️⃣ **Caption & hashtags** | Caption editor with a 2200-character counter; hashtags capped at **5**, the Instagram limit; one-click copy |
+| 🎵 **AI music** | Generates a track with the **ElevenLabs CLI** (REST fallback) and a **live progress bar**: stage, %, elapsed, ETA and bytes received |
 | ⬇ **Export** | Records the canvas and the music into a video; the local server converts it to an Instagram-ready **MP4** with ffmpeg |
 
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/v2-studio.png" alt="Studio overview" />
+  <img src="docs/v3-studio.png" alt="Studio overview" />
 </p>
 
 <p align="center">
@@ -83,10 +86,21 @@ elevenlabs music --help           # check the exact subcommand and flags of your
 The server runs the command from `MUSIC_CMD` in `.env`. It is a JSON array and no shell is involved:
 
 ```env
-MUSIC_CMD=["elevenlabs","music","compose","--prompt","{prompt}","--music-length-ms","{ms}","--output","{out}"]
+MUSIC_CMD=["elevenlabs","music","compose","--json","{json}","--output-format","mp3_44100_128","-o","{out}"]
 ```
 
-Placeholders: `{prompt}`, `{ms}`, `{seconds}`, `{out}`. If your CLI version uses different flags, change only this line.
+`{json}` becomes `{"prompt": …, "music_length_ms": …, "force_instrumental": …}`. CLI 1.12 rejects the `--prompt` and `--music-length-ms` flags with a validation error, so the request body is passed with `--json`.
+
+**Progress:** each generation is a background job. The bar combines a time estimate, which learns from your past generations, with the real number of bytes the CLI has written to disk.
+
+### ✨ Claude CLI
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude          # log in once
+```
+
+The **✨ Write prompt, caption & tags** button saves the current frame as a PNG and runs `claude -p … --allowedTools Read`. Claude reads the frame and returns JSON with `musicPrompt`, `caption` and exactly 5 `hashtags`. Change the command with `CLAUDE_CMD` in `.env`.
 If the CLI call fails and `ELEVENLABS_API_KEY` is set, the server calls `POST /v1/music` directly.
 The Music API is available on paid ElevenLabs plans only.
 

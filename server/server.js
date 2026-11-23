@@ -1,7 +1,9 @@
 // Local API for ASCII Reels Studio
-//  POST /api/music    {prompt, lengthMs, instrumental} -> {url}   (ElevenLabs CLI, REST fallback)
-//  POST /api/convert  raw webm body                    -> {url}   (ffmpeg -> mp4)
-//  GET  /api/health                                    -> what is available
+//  POST /api/music          {prompt, lengthMs, instrumental} -> {id}     start an ElevenLabs job
+//  GET  /api/music/:id      -> {state, progress, stage, elapsedMs, etaMs, url?, error?}
+//  POST /api/ai             {frame (png data url), stats, settings, caption, hashtags} -> {musicPrompt, caption, hashtags}
+//  POST /api/convert        raw webm body -> {url}                   (ffmpeg -> mp4)
+//  GET  /api/health         -> what is available
 import "dotenv/config";
 import express from "express";
 import spawn from "cross-spawn";
@@ -11,98 +13,182 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MEDIA = path.join(ROOT, "..", "media");
-fs.mkdirSync(MEDIA, { recursive: true });
+fs.mkdirSync(path.join(MEDIA, "frames"), { recursive: true });
 
 const PORT = Number(process.env.PORT || 8787);
 const FFMPEG = process.env.FFMPEG || "ffmpeg";
-const DEFAULT_CMD = ["elevenlabs", "music", "compose", "--prompt", "{prompt}",
-  "--music-length-ms", "{ms}", "--output", "{out}"];
-let MUSIC_CMD = DEFAULT_CMD;
-try { if (process.env.MUSIC_CMD) MUSIC_CMD = JSON.parse(process.env.MUSIC_CMD); }
-catch { console.warn("MUSIC_CMD is not valid JSON, using default"); }
+const parseCmd = (env, def) => {
+  try { return env ? JSON.parse(env) : def; } catch { console.warn("bad command JSON, using default"); return def; }
+};
+// ElevenLabs CLI: the request body goes in as --json (individual flags fail validation in CLI 1.12)
+const MUSIC_CMD = parseCmd(process.env.MUSIC_CMD,
+  ["elevenlabs", "music", "compose", "--json", "{json}", "--output-format", "mp3_44100_128", "-o", "{out}"]);
+const CLAUDE_CMD = parseCmd(process.env.CLAUDE_CMD,
+  ["claude", "-p", "{prompt}", "--output-format", "json", "--allowedTools", "Read"]);
+const BYTES_PER_SEC = 16000;                       // mp3 128 kbps -> expected file size
+const STATS = path.join(MEDIA, "timing.json");     // learned generation speed
 
 const app = express();
 app.use("/media", express.static(MEDIA));
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "20mb" }));
 
-// run a command without a shell; resolves {code, out}
-function run(cmd, args, timeoutMs = 300000) {
+// run a command without a shell; resolves {code, out, err}
+function run(cmd, args, { timeoutMs = 600000, cwd } = {}) {
   return new Promise((resolve) => {
-    let out = "";
-    let p;
-    try { p = spawn(cmd, args, { shell: false }); }
-    catch (e) { return resolve({ code: -1, out: String(e) }); }
+    let out = "", err = "", p;
+    try { p = spawn(cmd, args, { shell: false, cwd, env: process.env }); }
+    catch (e) { return resolve({ code: -1, out: "", err: String(e) }); }
     const timer = setTimeout(() => p.kill(), timeoutMs);
     p.stdout?.on("data", (d) => (out += d));
-    p.stderr?.on("data", (d) => (out += d));
-    p.on("error", (e) => { clearTimeout(timer); resolve({ code: -1, out: out + String(e) }); });
-    p.on("close", (code) => { clearTimeout(timer); resolve({ code, out }); });
+    p.stderr?.on("data", (d) => (err += d));
+    p.on("error", (e) => { clearTimeout(timer); resolve({ code: -1, out, err: err + String(e) }); });
+    p.on("close", (code) => { clearTimeout(timer); resolve({ code, out, err }); });
   });
 }
+const fill = (args, vars) => args.map((a) => a.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)));
 
 app.get("/api/health", async (_req, res) => {
-  const cli = await run(MUSIC_CMD[0], ["--version"], 10000);
-  const ff = await run(FFMPEG, ["-version"], 10000);
-  res.json({ cli: cli.code === 0, ffmpeg: ff.code === 0, apiKey: !!process.env.ELEVENLABS_API_KEY });
+  const [cli, claude, ff] = await Promise.all([
+    run(MUSIC_CMD[0], ["--version"], { timeoutMs: 10000 }),
+    run(CLAUDE_CMD[0], ["--version"], { timeoutMs: 10000 }),
+    run(FFMPEG, ["-version"], { timeoutMs: 10000 }),
+  ]);
+  res.json({ cli: cli.code === 0, claude: claude.code === 0, ffmpeg: ff.code === 0, apiKey: !!process.env.ELEVENLABS_API_KEY });
 });
 
-app.post("/api/music", async (req, res) => {
-  const prompt = String(req.body?.prompt || "").slice(0, 2000);
+// ---------------- music jobs ----------------
+const jobs = new Map();
+const loadTiming = () => { try { return JSON.parse(fs.readFileSync(STATS, "utf8")); } catch { return { base: 12000, perSec: 450 }; } };
+
+app.post("/api/music", (req, res) => {
+  const prompt = String(req.body?.prompt || "").slice(0, 2000).trim();
   const ms = Math.max(3000, Math.min(300000, Number(req.body?.lengthMs) || 30000));
   const instrumental = req.body?.instrumental !== false;
   if (!prompt) return res.status(400).json({ error: "empty prompt" });
-  const fullPrompt = instrumental ? `${prompt}. Instrumental only, no vocals.` : prompt;
-  const name = `music_${Date.now()}.mp3`;
-  const out = path.join(MEDIA, name);
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const name = `music_${id}.mp3`, out = path.join(MEDIA, name);
+  const tm = loadTiming();
+  const job = { id, state: "running", stage: "Sending prompt", started: Date.now(),
+    estMs: tm.base + tm.perSec * (ms / 1000), expectedBytes: BYTES_PER_SEC * (ms / 1000), out, name };
+  jobs.set(id, job);
+  res.json({ id });
+  runMusic(job, prompt, ms, instrumental);
+});
 
-  // 1) ElevenLabs CLI
-  const args = MUSIC_CMD.slice(1).map((a) => a
-    .replaceAll("{prompt}", fullPrompt)
-    .replaceAll("{ms}", String(ms))
-    .replaceAll("{seconds}", String(Math.round(ms / 1000)))
-    .replaceAll("{out}", out));
+async function runMusic(job, prompt, ms, instrumental) {
+  const body = { prompt, music_length_ms: ms, force_instrumental: instrumental };
+  const args = fill(MUSIC_CMD.slice(1), { json: JSON.stringify(body), out: job.out, ms, prompt });
+  if (process.env.ELEVENLABS_API_KEY && !args.includes("--xi-api-key")) args.push("--xi-api-key", process.env.ELEVENLABS_API_KEY);
+  if (process.env.ELEVENLABS_BASE_URL) args.push("--base-url", process.env.ELEVENLABS_BASE_URL);
+  job.stage = "Composing";
   const r = await run(MUSIC_CMD[0], args);
-  if (r.code === 0 && fs.existsSync(out) && fs.statSync(out).size > 0)
-    return res.json({ url: `/media/${name}`, via: "cli" });
+  const size = fs.existsSync(job.out) ? fs.statSync(job.out).size : 0;
+  if (r.code === 0 && size > 1000) return finish(job);
+  job.cliError = (r.err || r.out).slice(-800);
 
-  // 2) REST fallback
+  // REST fallback with a key
   const key = process.env.ELEVENLABS_API_KEY;
   if (key) {
     try {
-      const resp = await fetch("https://api.elevenlabs.io/v1/music", {
-        method: "POST",
-        headers: { "xi-api-key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: fullPrompt, music_length_ms: ms, force_instrumental: instrumental }),
+      job.stage = "Composing (REST)";
+      const base = process.env.ELEVENLABS_BASE_URL || "https://api.elevenlabs.io";
+      const resp = await fetch(`${base}/v1/music?output_format=mp3_44100_128`, {
+        method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       if (resp.ok) {
-        fs.writeFileSync(out, Buffer.from(await resp.arrayBuffer()));
-        return res.json({ url: `/media/${name}`, via: "api" });
+        const ws = fs.createWriteStream(job.out);            // stream so progress shows file growth
+        for await (const chunk of resp.body) ws.write(chunk);
+        await new Promise((r2) => ws.end(r2));
+        return finish(job);
       }
-      return res.status(502).json({ error: `API ${resp.status}: ${(await resp.text()).slice(0, 400)}`, cli: r.out.slice(-600) });
-    } catch (e) {
-      return res.status(502).json({ error: String(e), cli: r.out.slice(-600) });
-    }
+      return fail(job, `ElevenLabs API ${resp.status}: ${(await resp.text()).slice(0, 400)}`);
+    } catch (e) { return fail(job, String(e)); }
   }
-  res.status(500).json({
-    error: "ElevenLabs CLI failed. Check `elevenlabs auth login` and the MUSIC_CMD flags in .env (run `elevenlabs music --help`).",
-    cli: r.out.slice(-600),
-  });
+  fail(job, "ElevenLabs CLI failed. Run `elevenlabs auth login` (or set ELEVENLABS_API_KEY in .env).");
+}
+
+function finish(job) {
+  const took = Date.now() - job.started;
+  // learn: blend measured speed into the estimate for next time
+  const tm = loadTiming(), secs = job.expectedBytes / BYTES_PER_SEC;
+  const perSec = Math.max(50, (took - tm.base) / Math.max(1, secs));
+  fs.writeFileSync(STATS, JSON.stringify({ base: tm.base, perSec: tm.perSec * 0.6 + perSec * 0.4 }));
+  Object.assign(job, { state: "done", stage: "Done", url: `/media/${job.name}`, finished: Date.now() });
+}
+function fail(job, error) { Object.assign(job, { state: "error", stage: "Failed", error, finished: Date.now() }); }
+
+app.get("/api/music/:id", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "unknown job" });
+  const elapsed = (job.finished || Date.now()) - job.started;
+  const bytes = fs.existsSync(job.out) ? fs.statSync(job.out).size : 0;
+  // progress = the larger of time-based estimate (capped) and real bytes received
+  const byTime = 0.92 * (1 - Math.exp(-2.2 * elapsed / job.estMs));
+  const byBytes = Math.min(0.99, bytes / job.expectedBytes);
+  const progress = job.state === "done" ? 1 : Math.max(byTime, byBytes);
+  const stage = job.state === "running" && bytes > 0 ? "Receiving audio" : job.stage;
+  res.json({ state: job.state, stage, progress, elapsedMs: elapsed,
+    etaMs: job.state === "running" ? Math.max(0, job.estMs - elapsed) : 0,
+    bytes, url: job.url, error: job.error, cliError: job.cliError });
 });
 
+// ---------------- Claude: music prompt + caption + hashtags ----------------
+app.post("/api/ai", async (req, res) => {
+  const { frame, stats = {}, settings = {}, caption = "", hashtags = [], musicSec = 30, language = "English" } = req.body || {};
+  let framePath = "";
+  if (typeof frame === "string" && frame.startsWith("data:image/png;base64,")) {
+    framePath = path.join(MEDIA, "frames", `frame_${Date.now()}.png`);
+    fs.writeFileSync(framePath, Buffer.from(frame.split(",")[1], "base64"));
+  }
+  const prompt = [
+    "You help publish a looping ASCII-art animation as an Instagram Reel.",
+    framePath ? `First, read the image file at ${framePath} — it is the current frame.` : "",
+    `Scene stats: brightness ${(+stats.brightness || 0).toFixed(3)}, redness ${(+stats.redness || 0).toFixed(3)}.`,
+    `Visual settings: ${JSON.stringify(settings).slice(0, 800)}.`,
+    caption ? `Current caption draft: """${String(caption).slice(0, 1500)}"""` : "",
+    hashtags.length ? `Current hashtags: ${hashtags.join(", ")}` : "",
+    `Return ONLY a JSON object, no prose, with keys:`,
+    `"musicPrompt": an English prompt for ElevenLabs Music (genre, mood, instruments, tempo, texture), instrumental, loopable, ${musicSec} s, under 400 characters;`,
+    `"caption": an engaging Instagram caption in ${language}, 2-5 short lines, ending with a question to drive comments, no hashtags inside;`,
+    `"hashtags": exactly 5 relevant hashtags without the # sign, mixing niche and broader tags (Instagram allows at most 5).`,
+  ].filter(Boolean).join("\n");
+  const r = await run(CLAUDE_CMD[0], fill(CLAUDE_CMD.slice(1), { prompt }), { timeoutMs: 180000, cwd: MEDIA });
+  if (framePath) fs.rmSync(framePath, { force: true });
+  if (r.code !== 0) return res.status(500).json({ error: "Claude CLI failed. Is `claude` installed and logged in?", log: (r.err || r.out).slice(-800) });
+  let text = r.out;
+  try { const j = JSON.parse(r.out); text = j.result ?? j.text ?? r.out; } catch {}
+  const j = extractJson(String(text)) || extractJson(r.out);
+  if (!j) return res.status(500).json({ error: "Could not parse Claude's answer", log: String(text).slice(0, 800) });
+  const tags = (j.hashtags || []).map((t) => String(t).replace(/^#/, "").replace(/\s+/g, "")).filter(Boolean).slice(0, 5);
+  res.json({ musicPrompt: String(j.musicPrompt || ""), caption: String(j.caption || ""), hashtags: tags });
+});
+
+// find the JSON object with our keys anywhere in a model answer
+function extractJson(text) {
+  const end = text.lastIndexOf("}");
+  for (let i = text.indexOf("{"); i !== -1 && i < end; i = text.indexOf("{", i + 1)) {
+    for (let e = end; e > i; e = text.lastIndexOf("}", e - 1)) {
+      try {
+        const j = JSON.parse(text.slice(i, e + 1));
+        if (j && (j.musicPrompt || j.caption || j.hashtags)) return j;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+// ---------------- export ----------------
 app.post("/api/convert", express.raw({ type: "*/*", limit: "500mb" }), async (req, res) => {
   const id = Date.now();
-  const src = path.join(MEDIA, `rec_${id}.webm`);
-  const dst = path.join(MEDIA, `reel_${id}.mp4`);
+  const src = path.join(MEDIA, `rec_${id}.webm`), dst = path.join(MEDIA, `reel_${id}.mp4`);
   fs.writeFileSync(src, req.body);
   const r = await run(FFMPEG, ["-y", "-i", src, "-c:v", "libx264", "-pix_fmt", "yuv420p",
-    "-preset", "veryfast", "-crf", "18", "-r", "30", "-c:a", "aac", "-b:a", "192k",
-    "-movflags", "+faststart", dst]);
+    "-preset", "veryfast", "-crf", "18", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", dst]);
   fs.rmSync(src, { force: true });
-  if (r.code !== 0) return res.status(500).json({ error: "ffmpeg failed", log: r.out.slice(-800) });
+  if (r.code !== 0) return res.status(500).json({ error: "ffmpeg failed", log: (r.err || r.out).slice(-800) });
   res.json({ url: `/media/reel_${id}.mp4` });
 });
 
-// production: serve the built app
 const DIST = path.join(ROOT, "..", "dist");
 if (fs.existsSync(DIST)) {
   app.use(express.static(DIST));

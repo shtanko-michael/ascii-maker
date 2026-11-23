@@ -77,3 +77,34 @@ audio { width: 100%; margin-top: 8px; }
 .guides .gb { left: 0; right: 0; bottom: 0; height: 21%; }
 .guides .gr { right: 0; top: 12%; bottom: 21%; width: 13%; }
 .raw .guides { left: 50%; transform: translateX(-50%); width: calc(740px * 9 / 16); }
+
+/* tabs */
+.tabbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; max-width: 100%; }
+.tab { display: flex; align-items: center; gap: 8px; background: #141418; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; cursor: pointer; max-width: 180px; }
+.tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab.on { border-color: var(--red); background: #2a1012; }
+.tab b { color: var(--mut); font-weight: 400; }
+.tab b:hover { color: #fff; }
+.tab input { width: 110px; padding: 2px 6px; }
+.tab .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+.tabbtn { padding: 6px 10px; }
+.saved { color: var(--mut); font-size: 12px; margin-left: 6px; }
+
+/* fine-tune groups */
+details.group { border-top: 1px solid var(--line); padding: 8px 0; }
+details.group summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--mut); list-style: none; padding: 4px 0; }
+details.group summary::before { content: "▸ "; }
+details.group[open] summary::before { content: "▾ "; }
+.slider input[type=color] { height: 28px; padding: 2px; }
+.chip.off { opacity: .35; pointer-events: none; }
+
+/* progress */
+.progress { margin: 10px 0; }
+.pbar { height: 8px; background: #1c1c22; border-radius: 99px; overflow: hidden; }
+.pbar i { display: block; height: 100%; background: linear-gradient(90deg, #8a1c1e, var(--red), #ff8a7a); border-radius: 99px; transition: width .45s ease; }
+.pbar i.ind { width: 35%; animation: ind 1.2s ease-in-out infinite; }
+@keyframes ind { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.plabel { font-size: 12px; margin-top: 6px; }
+.psub { font-size: 11px; color: var(--mut); }
+.log.err { color: #ffb4a8; max-width: none; }

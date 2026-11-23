@@ -134,8 +134,9 @@ function sample(canvas, cols, rows) {
   return c.getImageData(0, 0, cols, rows).data;
 }
 
-export function buildLayers({ preset, image, cell, sceneW = W, sceneH, seed }) {
-  const cols = Math.floor(sceneW / cell), rows = Math.floor(sceneH / cell);
+// cw/ch = character cell width/height in px (can differ for tall/wide glyphs)
+export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, redGain = 1.6, whiteGain = 1.15 }) {
+  const cols = Math.floor(sceneW / cw), rows = Math.floor(sceneH / ch);
   const lum = new Float32Array(cols * rows), red = new Float32Array(cols * rows);
   let emitter;
   if (image) {
@@ -146,10 +147,10 @@ export function buildLayers({ preset, image, cell, sceneW = W, sceneH, seed }) {
     const d = sample(cv, cols, rows);
     for (let i = 0; i < cols * rows; i++) {
       const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
-      red[i] = Math.min(1, Math.max(0, (r - Math.max(g, b)) * 1.6));     // saturated reds
-      lum[i] = Math.min(1, Math.min(r, g, b) * 1.15);                    // whites/greys
+      red[i] = Math.min(1, Math.max(0, (r - Math.max(g, b)) * redGain));   // saturated reds
+      lum[i] = Math.min(1, Math.min(r, g, b) * whiteGain);                 // whites/greys
     }
-    emitter = brightestBlob(lum, cols, rows, cell);
+    emitter = brightestBlob(lum, cols, rows, cw, ch);
   } else {
     const p = PRESETS[preset];
     const Lc = makeCanvas(sceneW, sceneH), Rc = makeCanvas(sceneW, sceneH);
@@ -159,19 +160,19 @@ export function buildLayers({ preset, image, cell, sceneW = W, sceneH, seed }) {
     const e = p.emitter(sceneH), k = sceneW / 720;   // presets are authored for 720 wide
     emitter = { x: e.x * k, y: e.y, spread: e.spread * k };
   }
-  // mean brightness / redness, used to suggest a music prompt
   let ml = 0, mr = 0;
   for (let i = 0; i < lum.length; i++) { ml += lum[i]; mr += red[i]; }
-  return { cols, rows, lum, red, emitter, stats: { brightness: ml / lum.length, redness: mr / red.length } };
+  return { cols, rows, cw, ch, w: sceneW, h: sceneH, lum, red, emitter,
+    stats: { brightness: ml / lum.length, redness: mr / red.length } };
 }
 
-function brightestBlob(lum, cols, rows, cell) {
+function brightestBlob(lum, cols, rows, cw, ch) {
   const sorted = Array.from(lum).sort((a, b) => a - b);
   const thr = sorted[Math.floor(sorted.length * 0.97)] || 0.5;
   const xs = [], ys = [];
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++)
-    if (lum[y * cols + x] >= thr && thr > 0.05) { xs.push(x * cell); ys.push(y * cell); }
-  if (!xs.length) return { x: cols * cell / 2, y: rows * cell * 0.5, spread: 60 };
+    if (lum[y * cols + x] >= thr && thr > 0.05) { xs.push(x * cw); ys.push(y * ch); }
+  if (!xs.length) return { x: cols * cw / 2, y: rows * ch * 0.5, spread: 60 };
   xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
   const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
   const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length);
@@ -179,58 +180,107 @@ function brightestBlob(lum, cols, rows, cell) {
 }
 
 // ---------- streaks (falling ash / drips) ----------
-export function makeStreaks({ count, loop, emitter, seed }) {
-  const r = rng(seed + 99), out = [];
-  for (let k = 0; k < count; k++) out.push({
-    x: emitter.x + (r() * 2 - 1) * emitter.spread,
-    y0: emitter.y + (r() - 0.5) * 60,
-    len: 200 + r() * 300,
-    period: loop / [1, 2, 3][Math.floor(r() * 3)],     // divisors of loop -> seamless
-    t0: r() * loop,
+// o: count, loop, seed, lenMin, lenMax, speed (1..4 = passes per loop), emitX/emitY/emitSpread
+// (0..1 of scene, or null = auto)
+export function makeStreaks(L, o) {
+  const r = rng(o.seed + 99), out = [], e = L.emitter;
+  const ex = o.emitX == null ? e.x : o.emitX * L.w;
+  const ey = o.emitY == null ? e.y : o.emitY * L.h;
+  const sp = o.emitSpread == null ? e.spread : o.emitSpread * L.w / 2;
+  const speeds = [1, 2, 3, 4].filter((k) => k <= Math.max(1, o.speed));
+  for (let k = 0; k < o.count; k++) out.push({
+    x: ex + (r() * 2 - 1) * sp,
+    y0: ey + (r() - 0.5) * 60,
+    len: o.lenMin + r() * Math.max(0, o.lenMax - o.lenMin),
+    period: o.loop / speeds[Math.floor(r() * speeds.length)],   // divisors of loop -> seamless
+    t0: r() * o.loop,
   });
   return out;
 }
 
 // ---------- render one frame ----------
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+
 export function renderFrame(ctx, L, S, t, o) {
-  const { cols, rows, lum, red } = L, cell = o.cell;
+  const { cols, rows, lum, red, cw, ch } = L;
+  const ox = o.x || 0, oy = o.y || 0, loop = o.loop, dir = o.direction === "up" ? -1 : 1;
+
+  // 1) streak field
   const field = new Float32Array(cols * rows);
   for (let k = 0; k < S.length; k++) {
     const s = S[k];
     const u = ((((t - s.t0) / s.period) % 1) + 1) % 1;
     const a = ease(u / 0.1) * ease((1 - u) / 0.25) * o.streakGain;
-    const tip = s.y0 + s.len * Math.pow(u, 1.4);
-    const r0 = Math.max(0, Math.floor(s.y0 / cell)), r1 = Math.min(rows - 1, Math.floor(tip / cell));
+    const tip = s.y0 + dir * s.len * Math.pow(u, o.accel);
+    const yA = Math.min(s.y0, tip), yB = Math.max(s.y0, tip);
+    const r0 = Math.max(0, Math.floor(yA / ch)), r1 = Math.min(rows - 1, Math.floor(yB / ch));
+    const span = Math.max(1, r1 - r0 + 1);
     for (let ry = r0; ry <= r1; ry++) {
-      const cx = Math.round((s.x + 4 * Math.sin((ry * cell) / 40 + k)) / cell);
+      const cx = Math.round((s.x + o.wobble * Math.sin((ry * ch) / 40 + k)) / cw);
       if (cx < 0 || cx >= cols) continue;
-      const v = (1 - 0.7 * (ry - r0) / Math.max(1, r1 - r0 + 1)) * a;
-      const i = ry * cols + cx;
-      if (v > field[i]) field[i] = v;
+      const along = dir > 0 ? (ry - r0) / span : (r1 - ry) / span;   // 0 at source, 1 at tip
+      const v = (1 - o.fade * along) * a;
+      for (let dx = 0; dx < o.thickness; dx++) {
+        const c2 = cx + dx; if (c2 >= cols) break;
+        const i = ry * cols + c2;
+        if (v > field[i]) field[i] = v;
+      }
     }
   }
+
+  // 2) shade + glyphs
   const tint = o.tint, glyphs = o.ramp, n = glyphs.length - 1;
-  const ox = o.x || 0, oy = o.y || 0;
-  const flick = 0.92 + 0.08 * Math.sin((TAU * t / o.loop) * 3);
-  ctx.font = `${Math.round(cell * 1.25)}px ui-monospace, Menlo, Consolas, monospace`;
+  const streakCol = hex(o.streakColor), bg = o.background;
+  const flick = 1 - o.flicker + o.flicker * (0.5 + 0.5 * Math.sin((TAU * t / loop) * 3));
+  ctx.fillStyle = bg; ctx.fillRect(ox, oy, cols * cw, rows * ch);
+  ctx.font = `${o.bold ? "700 " : ""}${Math.round(ch * o.fontScale)}px ui-monospace, Menlo, Consolas, monospace`;
   ctx.textBaseline = "top";
+  const jr = rng(Math.floor(t / Math.max(1, o.jitterEvery)) + 1);   // glyph jitter changes every N frames
+  const cx0 = cols / 2, cy0 = rows / 2, vr = Math.hypot(cx0, cy0);
   for (let y = 0; y < rows; y++) {
-    const pulse = 1 - o.pulse + o.pulse * (0.5 + 0.5 * Math.sin(TAU * ((y * cell) / 120 - (t / o.loop) * 2)));
+    const pulse = 1 - o.pulse + o.pulse * (0.5 + 0.5 * Math.sin(TAU * ((dir * y * ch) / o.pulseWave - (t / loop) * o.pulseSpeed)));
+    const scan = o.scanlines && y % 2 ? 1 - o.scanlines : 1;
     for (let x = 0; x < cols; x++) {
-      const i = y * cols + x, s = field[i], l = lum[i], rd = red[i] * pulse;
-      const r = Math.min(1, rd * tint[0] + l + s);
-      const g = Math.min(1, (rd * tint[1] + l) * flick + s);
-      const b = Math.min(1, (rd * tint[2] + l) * flick + s);
-      const v = Math.max(r, g, b);
-      if (v < 0.04) continue;
-      const ch = glyphs[Math.min(n, Math.round(v * n))];
-      if (ch === " ") continue;
-      const k = (0.35 + 0.65 * v) / v * 255;
-      ctx.fillStyle = `rgb(${(r * k) | 0},${(g * k) | 0},${(b * k) | 0})`;
-      ctx.fillText(ch, ox + x * cell, oy + y * cell - 1);
+      const i = y * cols + x, s = field[i], l = lum[i] * o.whiteMix, rd = red[i] * pulse * o.tintMix;
+      let r = rd * tint[0] + l + s * streakCol[0];
+      let g = (rd * tint[1] + l) * flick + s * streakCol[1];
+      let b = (rd * tint[2] + l) * flick + s * streakCol[2];
+      // tone: brightness, contrast, gamma, vignette
+      let v = Math.max(r, g, b);
+      if (v <= 0) continue;
+      let tv = Math.min(1, Math.max(0, (v * o.brightness - 0.5) * o.contrast + 0.5));
+      tv = Math.pow(tv, 1 / o.gamma);
+      if (o.vignette) tv *= 1 - o.vignette * Math.pow(Math.hypot(x - cx0, y - cy0) / vr, 2);
+      tv *= scan;
+      if (o.invert) tv = 1 - tv;
+      if (tv < o.threshold) continue;
+      let gi = Math.min(n, Math.round(tv * n));
+      if (o.jitter && jr() < o.jitter) gi = Math.max(1, Math.min(n, gi + (jr() < 0.5 ? -1 : 1)));
+      const chr = glyphs[gi];
+      if (chr === " ") continue;
+      // colour
+      let cr, cg, cb;
+      if (o.colorMode === "mono") { cr = cg = cb = tv; }
+      else if (o.colorMode === "tint") { cr = tint[0] * tv; cg = tint[1] * tv; cb = tint[2] * tv; }
+      else { const k = (0.35 + 0.65 * tv) / v; cr = r * k; cg = g * k; cb = b * k; }
+      const sat = o.saturation, m = (cr + cg + cb) / 3;
+      cr = m + (cr - m) * sat; cg = m + (cg - m) * sat; cb = m + (cb - m) * sat;
+      ctx.fillStyle = `rgb(${Math.min(255, Math.max(0, cr * 255)) | 0},${Math.min(255, Math.max(0, cg * 255)) | 0},${Math.min(255, Math.max(0, cb * 255)) | 0})`;
+      ctx.fillText(chr, ox + x * cw, oy + y * ch - 1);
     }
   }
 }
+
+// default fine-tuning values (the UI and saved tabs start from these)
+export const FINE_DEFAULTS = {
+  cellW: 8, cellH: 8, fontScale: 1.25, bold: false,
+  brightness: 1, contrast: 1, gamma: 1, threshold: 0.04, invert: false, saturation: 1,
+  colorMode: "source", background: "#000000", whiteMix: 1, tintMix: 1,
+  streakColor: "#ffffff", thickness: 1, lenMin: 200, lenMax: 500, speed: 3, accel: 1.4,
+  wobble: 4, fade: 0.7, direction: "down", emitX: null, emitY: null, emitSpread: null,
+  pulseWave: 120, pulseSpeed: 2, flicker: 0.08,
+  vignette: 0, scanlines: 0, jitter: 0, jitterEvery: 3,
+};
 
 // scrolling source-code panel under the scene
 export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W) {
