@@ -48,13 +48,13 @@
 ## 🛡 Reels safe zones
 
 Instagram draws its UI on top of a Reel: the status bar and back button cover the **top ~12%**, the caption and music line cover the **bottom ~21%**, and the action buttons cover the **right ~13%**. Tall phones also crop a little off both sides.
-The default **Reels safe** layout fills the whole 9:16 frame with no black bars. The subject is placed in the band no phone covers (y 152–840) and fades into a blurred, dimmed copy of the same scene that fills the rest of the frame. The code is a translucent strip under the subject (y 846–1004), left of the action buttons.
+The default **Reels safe** layout fills the whole 9:16 frame with no black bars. The subject is placed in the band no phone covers (y 152–840) and fades into a blurred, dimmed copy of the same scene that fills the rest of the frame. The code is a full-width translucent strip under the subject (y 846–1004).
 
 <p align="center"><img src="docs/v2-reels-safe.png" width="260" alt="Safe-zone overlay" /></p>
 
 | Layout | Scene | Code panel | Use for |
 |---|---|---|---|
-| **Reels safe** *(default)* | full 720×1280, subject in 720×688 at y 152 | translucent 588×158 at (28, 846) | Reels |
+| **Reels safe** *(default)* | full 720×1280, subject in 720×688 at y 152 | translucent 720×158 at (0, 846) | Reels |
 | **Full frame** | 720×860 | 720×420 underneath | TikTok/Shorts with an overlay you control, plain video |
 | **No code** | 720×1280 | — | Background loops |
 

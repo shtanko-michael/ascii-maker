@@ -9,9 +9,9 @@ export const TAU = Math.PI * 2;
 // action buttons, and tall phones crop a few % off both sides.
 export const LAYOUTS = {
   // full-bleed 9:16 frame; the subject sits in the band no phone covers and above the code (y 152..840),
-  // the code is a translucent strip at the bottom of that band, left of the action buttons
+  // the code is a full-width translucent strip right under that band
   reels: { name: "Reels safe", scene: { x: 0, y: 0, w: 720, h: 1280 }, subject: { y: 152, h: 688 },
-    code: { top: 846, bottom: 1004, left: 28, width: 588, overlay: true } },
+    code: { top: 846, bottom: 1004, left: 0, width: 720, overlay: true } },
   full:  { name: "Full frame", scene: { x: 0, y: 0, w: 720, h: 860 }, code: { top: 860, bottom: 1280 } },
   clean: { name: "No code",    scene: { x: 0, y: 0, w: 720, h: 1280 }, code: null },
 };
@@ -144,9 +144,16 @@ function sample(canvas, cols, rows) {
 function placeBand(src, w, h, y0, bh, feather = 90) {
   const c = makeCanvas(w, h), g = c.getContext("2d");
   const k = Math.max(w / src.width, h / src.height);
-  g.filter = "blur(28px)"; g.globalAlpha = 0.32;
+  g.filter = "blur(28px)"; g.globalAlpha = 0.22;
   g.drawImage(src, (w - src.width * k) / 2, (h - src.height * k) / 2, src.width * k, src.height * k);
   g.filter = "none"; g.globalAlpha = 1;
+  // fade the backdrop out towards the frame edges so the area under the UI stays calm
+  g.globalCompositeOperation = "destination-in";
+  const v = g.createLinearGradient(0, 0, 0, h);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(Math.max(0, (y0 - 40) / h), "rgba(0,0,0,0.9)");
+  v.addColorStop(Math.min(1, (y0 + bh + 40) / h), "rgba(0,0,0,0.9)"); v.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = v; g.fillRect(0, 0, w, h);
+  g.globalCompositeOperation = "source-over";
   const band = makeCanvas(w, bh), bg = band.getContext("2d");
   bg.drawImage(src, 0, 0);
   bg.globalCompositeOperation = "destination-in";
@@ -172,7 +179,8 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, s
     if (subject) cv = placeBand(cv, sceneW, sceneH, by, bh);
     const d = sample(cv, cols, rows);
     for (let i = 0; i < cols * rows; i++) {
-      const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
+      const al = d[i * 4 + 3] / 255;   // getImageData is un-premultiplied: apply alpha so faded areas really go dark
+      const r = d[i * 4] / 255 * al, g = d[i * 4 + 1] / 255 * al, b = d[i * 4 + 2] / 255 * al;
       red[i] = Math.min(1, Math.max(0, (r - Math.max(g, b)) * redGain));   // saturated reds
       lum[i] = Math.min(1, Math.min(r, g, b) * whiteGain);                 // whites/greys
     }
@@ -313,7 +321,7 @@ export const FINE_DEFAULTS = {
 // scrolling source-code panel under the scene
 export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W, overlay = false) {
   const h = bottom - top, lh = 20;
-  ctx.fillStyle = overlay ? "rgba(8,8,10,0.78)" : "#0c0c0e"; ctx.fillRect(left, top, width, h);
+  ctx.fillStyle = overlay ? "rgba(8,8,10,0.88)" : "#0c0c0e"; ctx.fillRect(left, top, width, h);
   ctx.fillStyle = "#3c1414"; ctx.fillRect(left, top, width, 1);
   ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, h); ctx.clip();
   ctx.font = "15px ui-monospace, Menlo, Consolas, monospace"; ctx.textBaseline = "top";
