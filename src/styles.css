@@ -43,6 +43,7 @@ audio { width: 100%; margin-top: 8px; }
   overflow: hidden; box-shadow: 0 30px 80px #000c, 0 0 0 1px #333; }
 .phone canvas { width: 100%; height: auto; display: block; }
 .reels canvas { position: absolute; inset: 0; height: 100%; object-fit: cover; }
+.raw { position: relative; }
 .raw canvas { height: 740px; width: auto; border-radius: 8px; box-shadow: 0 20px 60px #000a; }
 .rtop { position: absolute; top: 34px; left: 16px; right: 16px; display: flex; justify-content: space-between; font-size: 20px; text-shadow: 0 1px 4px #000; }
 .rside { position: absolute; right: 10px; bottom: 90px; display: flex; flex-direction: column; gap: 18px; align-items: center; font-size: 24px; text-shadow: 0 1px 4px #000; }
@@ -68,3 +69,11 @@ audio { width: 100%; margin-top: 8px; }
 .actions span { margin-left: auto; }
 .likes, .feed .cap { padding: 2px 12px; }
 @media (max-width: 1150px) { .app { grid-template-columns: 1fr; } .panel { max-height: none; } }
+
+/* Instagram Reels UI zones on a 9:16 frame */
+.guides { position: absolute; inset: 0; pointer-events: none; }
+.guides i { position: absolute; background: repeating-linear-gradient(45deg, #ff2a2a33 0 6px, #ff2a2a11 6px 12px); outline: 1px dashed #ff5a5a; }
+.guides .gt { left: 0; right: 0; top: 0; height: 12%; }
+.guides .gb { left: 0; right: 0; bottom: 0; height: 21%; }
+.guides .gr { right: 0; top: 12%; bottom: 21%; width: 13%; }
+.raw .guides { left: 50%; transform: translateX(-50%); width: calc(740px * 9 / 16); }

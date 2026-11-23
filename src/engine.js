@@ -3,6 +3,16 @@
 export const W = 720, H = 1280;
 export const TAU = Math.PI * 2;
 
+// Where things go on the 720x1280 canvas.
+// "reels" keeps everything inside Instagram's safe zone: top ~12% is covered by
+// the status bar / back button, bottom ~22% by caption + music, right ~13% by the
+// action buttons, and tall phones crop a few % off both sides.
+export const LAYOUTS = {
+  reels: { name: "Reels safe", scene: { x: 60, y: 160, w: 560, h: 669 }, code: { top: 840, bottom: 1010 } },
+  full:  { name: "Full frame", scene: { x: 0, y: 0, w: 720, h: 860 }, code: { top: 860, bottom: 1280 } },
+  clean: { name: "No code",    scene: { x: 0, y: 0, w: 720, h: 1280 }, code: null },
+};
+
 const ease = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
 
 // small seeded rng so scenes are reproducible
@@ -91,15 +101,15 @@ function sample(canvas, cols, rows) {
   return c.getImageData(0, 0, cols, rows).data;
 }
 
-export function buildLayers({ preset, image, cell, sceneH, seed }) {
-  const cols = Math.floor(W / cell), rows = Math.floor(sceneH / cell);
+export function buildLayers({ preset, image, cell, sceneW = W, sceneH, seed }) {
+  const cols = Math.floor(sceneW / cell), rows = Math.floor(sceneH / cell);
   const lum = new Float32Array(cols * rows), red = new Float32Array(cols * rows);
   let emitter;
   if (image) {
-    const cv = makeCanvas(W, sceneH), c = cv.getContext("2d");
-    const s = Math.max(W / image.width, sceneH / image.height);
+    const cv = makeCanvas(sceneW, sceneH), c = cv.getContext("2d");
+    const s = Math.max(sceneW / image.width, sceneH / image.height);
     const iw = image.width * s, ih = image.height * s;
-    c.drawImage(image, (W - iw) / 2, (sceneH - ih) / 2, iw, ih);
+    c.drawImage(image, (sceneW - iw) / 2, (sceneH - ih) / 2, iw, ih);
     const d = sample(cv, cols, rows);
     for (let i = 0; i < cols * rows; i++) {
       const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
@@ -109,11 +119,12 @@ export function buildLayers({ preset, image, cell, sceneH, seed }) {
     emitter = brightestBlob(lum, cols, rows, cell);
   } else {
     const p = PRESETS[preset];
-    const Lc = makeCanvas(W, sceneH), Rc = makeCanvas(W, sceneH);
-    p.draw(Lc.getContext("2d"), Rc.getContext("2d"), W, sceneH, rng(seed));
+    const Lc = makeCanvas(sceneW, sceneH), Rc = makeCanvas(sceneW, sceneH);
+    p.draw(Lc.getContext("2d"), Rc.getContext("2d"), sceneW, sceneH, rng(seed));
     const dl = sample(Lc, cols, rows), dr = sample(Rc, cols, rows);
     for (let i = 0; i < cols * rows; i++) { lum[i] = dl[i * 4 + 3] / 255; red[i] = dr[i * 4 + 3] / 255; }
-    emitter = p.emitter(sceneH);
+    const e = p.emitter(sceneH), k = sceneW / 720;   // presets are authored for 720 wide
+    emitter = { x: e.x * k, y: e.y, spread: e.spread * k };
   }
   // mean brightness / redness, used to suggest a music prompt
   let ml = 0, mr = 0;
@@ -127,7 +138,7 @@ function brightestBlob(lum, cols, rows, cell) {
   const xs = [], ys = [];
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++)
     if (lum[y * cols + x] >= thr && thr > 0.05) { xs.push(x * cell); ys.push(y * cell); }
-  if (!xs.length) return { x: W / 2, y: rows * cell * 0.5, spread: 60 };
+  if (!xs.length) return { x: cols * cell / 2, y: rows * cell * 0.5, spread: 60 };
   xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
   const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
   const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length);
@@ -166,8 +177,8 @@ export function renderFrame(ctx, L, S, t, o) {
     }
   }
   const tint = o.tint, glyphs = o.ramp, n = glyphs.length - 1;
+  const ox = o.x || 0, oy = o.y || 0;
   const flick = 0.92 + 0.08 * Math.sin((TAU * t / o.loop) * 3);
-  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, rows * cell);
   ctx.font = `${Math.round(cell * 1.25)}px ui-monospace, Menlo, Consolas, monospace`;
   ctx.textBaseline = "top";
   for (let y = 0; y < rows; y++) {
@@ -183,26 +194,26 @@ export function renderFrame(ctx, L, S, t, o) {
       if (ch === " ") continue;
       const k = (0.35 + 0.65 * v) / v * 255;
       ctx.fillStyle = `rgb(${(r * k) | 0},${(g * k) | 0},${(b * k) | 0})`;
-      ctx.fillText(ch, x * cell, y * cell - 1);
+      ctx.fillText(ch, ox + x * cell, oy + y * cell - 1);
     }
   }
 }
 
 // scrolling source-code panel under the scene
-export function renderCode(ctx, lines, t, loop, top) {
-  const h = H - top, lh = 20;
-  ctx.fillStyle = "#0c0c0e"; ctx.fillRect(0, top, W, h);
-  ctx.fillStyle = "#3c1414"; ctx.fillRect(0, top, W, 1);
-  ctx.save(); ctx.beginPath(); ctx.rect(0, top, W, h); ctx.clip();
+export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W) {
+  const h = bottom - top, lh = 20;
+  ctx.fillStyle = "#0c0c0e"; ctx.fillRect(left, top, width, h);
+  ctx.fillStyle = "#3c1414"; ctx.fillRect(left, top, width, 1);
+  ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, h); ctx.clip();
   ctx.font = "15px ui-monospace, Menlo, Consolas, monospace"; ctx.textBaseline = "top";
   const off = (t / loop) * lines.length * lh, first = Math.floor(off / lh);
   for (let i = -1; i < h / lh + 2; i++) {
     const n = (((first + i) % lines.length) + lines.length) % lines.length;
     const y = top + 12 + i * lh - (off % lh), line = lines[n], s = line.trim();
-    ctx.fillStyle = "#46464f"; ctx.fillText(String(n + 1).padStart(3), 10, y);
+    ctx.fillStyle = "#46464f"; ctx.fillText(String(n + 1).padStart(3), left + 10, y);
     ctx.fillStyle = s.startsWith("//") ? "#6e6e78"
       : /^(export |function |const |for |if |return)/.test(s) ? "#e65a5a" : "#c8c8cd";
-    ctx.fillText(line.slice(0, 72), 52, y);
+    ctx.fillText(line.slice(0, 72), left + 52, y);
   }
   ctx.restore();
 }

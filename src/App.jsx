@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { W, H, PRESETS, buildLayers, makeStreaks, renderFrame, renderCode, describeVisual } from "./engine.js";
+import { W, H, LAYOUTS, PRESETS, buildLayers, makeStreaks, renderFrame, renderCode, describeVisual } from "./engine.js";
 import engineSource from "./engine.js?raw";
 
 const CODE_LINES = engineSource.split("\n").filter((l) => l.trim());
@@ -33,7 +33,8 @@ export default function App() {
   const [streakGain, setStreakGain] = useState(0.6);
   const [pulse, setPulse] = useState(0.3);
   const [loopSec, setLoopSec] = useState(6);
-  const [codePanel, setCodePanel] = useState(true);
+  const [layout, setLayout] = useState("reels");
+  const [guides, setGuides] = useState(false);
   const [seed, setSeed] = useState(7);
   const [playing, setPlaying] = useState(true);
 
@@ -60,17 +61,17 @@ export default function App() {
   const tRef = useRef(0);
   const audioGraph = useRef(null);
 
-  const sceneH = codePanel ? 860 : H;
+  const L = LAYOUTS[layout], box = L.scene;
   const loop = loopSec * 30;
   const layers = useMemo(
-    () => buildLayers({ preset, image, cell, sceneH, seed }),
-    [preset, image, cell, sceneH, seed]
+    () => buildLayers({ preset, image, cell, sceneW: box.w, sceneH: box.h, seed }),
+    [preset, image, cell, layout, seed]
   );
   const streakList = useMemo(
     () => makeStreaks({ count: streaks, loop, emitter: layers.emitter, seed }),
     [streaks, loop, layers, seed]
   );
-  const opts = { cell, ramp: RAMPS[ramp], tint: TINTS[tint], streakGain, pulse, loop };
+  const opts = { cell, ramp: RAMPS[ramp], tint: TINTS[tint], streakGain, pulse, loop, x: box.x, y: box.y };
 
   useEffect(() => { if (!prompt) setPrompt(describeVisual(layers.stats, opts)); }, [layers]); // eslint-disable-line
   useEffect(() => { fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => setHealth(false)); }, []);
@@ -82,7 +83,7 @@ export default function App() {
     const draw = () => {
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
       renderFrame(ctx, layers, streakList, tRef.current, opts);
-      if (codePanel) renderCode(ctx, CODE_LINES, tRef.current, loop, sceneH);
+      if (L.code) renderCode(ctx, CODE_LINES, tRef.current, loop, L.code.top, L.code.bottom, box.x, box.w);
     };
     const tick = (now) => {
       if (playing && now - last >= 1000 / 30) {
@@ -189,6 +190,12 @@ export default function App() {
         </Section>
 
         <Section title="Look">
+          <div className="row">
+            {Object.entries(LAYOUTS).map(([k, l]) => (
+              <button key={k} className={layout === k ? "on" : ""} onClick={() => setLayout(k)}>{l.name}</button>
+            ))}
+          </div>
+          <label className="chk"><input type="checkbox" checked={guides} onChange={(e) => setGuides(e.target.checked)} /> Show Instagram safe zones</label>
           <Slider label="Cell size" v={cell} set={setCell} min={5} max={16} />
           <Select label="Glyphs" v={ramp} set={setRamp} opts={Object.keys(RAMPS)} />
           <Select label="Tint" v={tint} set={setTint} opts={Object.keys(TINTS)} />
@@ -198,7 +205,6 @@ export default function App() {
           <Slider label="Loop, s" v={loopSec} set={setLoopSec} min={2} max={15} />
           <div className="row">
             <button onClick={() => setSeed(Math.floor(Math.random() * 1e6))}>🎲 Reseed</button>
-            <button className={codePanel ? "on" : ""} onClick={() => setCodePanel(!codePanel)}>Code panel</button>
             <button onClick={() => setPlaying(!playing)}>{playing ? "❚❚ Pause" : "▶ Play"}</button>
           </div>
         </Section>
@@ -227,7 +233,7 @@ export default function App() {
             <button key={v} className={view === v ? "on" : ""} onClick={() => setView(v)}>{v}</button>
           ))}
         </div>
-        <Phone view={view} username={username} caption={caption} tags={tags} musicName={musicName}
+        <Phone view={view} guides={guides} username={username} caption={caption} tags={tags} musicName={musicName}
           expanded={expanded} setExpanded={setExpanded}>
           <canvas ref={canvasRef} width={W} height={H} />
         </Phone>
@@ -261,7 +267,7 @@ export default function App() {
   );
 }
 
-function Phone({ view, username, caption, tags, musicName, expanded, setExpanded, children }) {
+function Phone({ view, guides, username, caption, tags, musicName, expanded, setExpanded, children }) {
   const text = `${caption}\n\n${tags.map((t) => "#" + t).join(" ")}`;
   const first = caption.split("\n")[0];
   const Caption = () => (
@@ -269,7 +275,11 @@ function Phone({ view, username, caption, tags, musicName, expanded, setExpanded
       <b>{username}</b> {expanded ? <span className="pre">{text}</span> : <>{first.slice(0, 60)}<span className="more">… more</span></>}
     </div>
   );
-  if (view === "raw") return <div className="raw">{children}</div>;
+  if (view === "raw") return (
+    <div className="raw">{children}
+      {guides && <div className="guides"><i className="gt" /><i className="gb" /><i className="gr" /></div>}
+    </div>
+  );
   if (view === "feed") return (
     <div className="phone feed">
       <div className="fhead"><span className="ava" /> <b>{username}</b><span className="dots">•••</span></div>
@@ -282,6 +292,7 @@ function Phone({ view, username, caption, tags, musicName, expanded, setExpanded
   return (
     <div className="phone reels">
       {children}
+      {guides && <div className="guides"><i className="gt" /><i className="gb" /><i className="gr" /></div>}
       <div className="rtop"><b>Reels</b><span>📷</span></div>
       <div className="rside"><div>♡<small>1.2K</small></div><div>💬<small>87</small></div><div>➤</div><div>•••</div><div className="disc" /></div>
       <div className="rbottom">

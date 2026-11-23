@@ -8,7 +8,12 @@ from PIL import Image, ImageDraw, ImageFont
 W, H = 720, 1280            # phone video
 SH = 860                    # height of the ASCII scene area
 CELL = 8                    # pixels per glyph cell
-LOOP = 180                  # frames per loop (6 s @ 30 fps)
+LOOP = 180
+# Reels-safe layout: Instagram UI covers ~12% top, ~21% bottom, ~13% right.
+# SAFE=True puts the scene + code into the visible box; False = old full frame.
+SAFE = True
+BOX = (60, 160, 560, 669) if SAFE else (0, 0, W, 860)     # scene x, y, w, h
+CODE_BOX = (60, 840, 560, 170) if SAFE else (0, 860, W, 420)                  # frames per loop (6 s @ 30 fps)
 TAU = 2 * np.pi
 RAMP = " .,:;-=+*cox%#@"    # dark -> bright
 def load_font(size):
@@ -136,9 +141,9 @@ def pulse(t):
 
 # ---------- ASCII pass ---------------------------------------------------
 def to_ascii(rgb):
-    img = Image.new("RGB", (W, SH), (0, 0, 0))
+    img = Image.new("RGB", (rgb.shape[1], rgb.shape[0]), (0, 0, 0))
     d = ImageDraw.Draw(img)
-    small = cv2.resize(rgb, (W // CELL, SH // CELL), interpolation=cv2.INTER_AREA)
+    small = cv2.resize(rgb, (rgb.shape[1] // CELL, rgb.shape[0] // CELL), interpolation=cv2.INTER_AREA)
     lum = small.max(axis=2)
     for cy in range(small.shape[0]):
         for cx in range(small.shape[1]):
@@ -156,13 +161,14 @@ LH = 20
 
 
 def code_panel(t):
-    img = Image.new("RGB", (W, H - SH), (12, 12, 14))
+    cw, ch = CODE_BOX[2], CODE_BOX[3]
+    img = Image.new("RGB", (cw, ch), (12, 12, 14))
     d = ImageDraw.Draw(img)
-    d.line([(0, 0), (W, 0)], fill=(60, 20, 20))
+    d.line([(0, 0), (cw, 0)], fill=(60, 20, 20))
     total = len(CODE) * LH
     off = (t / LOOP) * total                      # one full scroll per loop
     first = int(off // LH)
-    for i in range(-1, (H - SH) // LH + 2):
+    for i in range(-1, ch // LH + 2):
         n = (first + i) % len(CODE)
         y = 12 + i * LH - (off % LH)
         line = CODE[n].replace("\t", "    ")
@@ -185,8 +191,10 @@ def render(t):
     b = np.clip(LUM + w, 0, 1) * flick
     rgb = np.dstack([r, g, b]) * (1 - SIL[..., None])
     frame = Image.new("RGB", (W, H))
-    frame.paste(to_ascii(rgb.astype(np.float32)), (0, 0))
-    frame.paste(code_panel(t), (0, SH))
+    x, y, bw, bh = BOX
+    scene = cv2.resize(rgb.astype(np.float32), (bw, bh), interpolation=cv2.INTER_AREA)
+    frame.paste(to_ascii(scene), (x, y))
+    frame.paste(code_panel(t), CODE_BOX[:2])
     return frame
 
 

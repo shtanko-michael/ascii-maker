@@ -20,6 +20,7 @@
 | 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`), cell size, colour tints |
 | 🌧 **Animation** | Falling glowing streaks, a travelling pulse, flicker; all loop seamlessly |
 | 🧾 **Code panel** | The engine's own source code scrolls under the scene, like in the creative-coding reels |
+| 🛡 **Reels-safe layout** | Scene and code are placed so the Instagram UI never covers them; safe-zone overlay in the preview |
 | 📱 **Instagram preview** | **Reels**, **Feed 4:5** and **Raw** views with a realistic overlay: avatar, caption with "… more", music ticker, side actions |
 | #️⃣ **Caption & hashtags** | Caption editor with a 2200-character counter, hashtag chips with a 30-tag limit and suggestions, one-click copy |
 | 🎵 **AI music** | Writes a music prompt **from the visual** (brightness, redness, tempo) and generates a track with the **ElevenLabs CLI** (REST API fallback) |
@@ -39,6 +40,21 @@
   <img src="docs/feed.png" width="240" alt="Feed 4:5 preview" />
 </p>
 <p align="center"><sub>Reels · <i>Monolith</i> &nbsp;|&nbsp; Reels · <code>blocks</code> + <code>toxic</code> &nbsp;|&nbsp; Feed 4:5</sub></p>
+
+## 🛡 Reels safe zones
+
+Instagram draws its UI on top of a Reel: the status bar and back button cover the **top ~12%**, the caption and music line cover the **bottom ~21%**, and the action buttons cover the **right ~13%**. Tall phones also crop a little off both sides.
+The default **Reels safe** layout keeps the scene and the code inside the visible box, and the bands are left black.
+
+<p align="center"><img src="docs/reels-safe.png" width="260" alt="Safe-zone overlay" /></p>
+
+| Layout | Scene | Code panel | Use for |
+|---|---|---|---|
+| **Reels safe** *(default)* | 560×669 at (60, 160) | 560×170 at (60, 840) | Reels |
+| **Full frame** | 720×860 | 720×420 underneath | TikTok/Shorts with an overlay you control, plain video |
+| **No code** | 720×1280 | — | Background loops |
+
+In the Python renderers, `SAFE = True` at the top of the script does the same.
 
 ## 🚀 Quick start
 
