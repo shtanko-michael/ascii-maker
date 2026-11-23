@@ -1,5 +1,5 @@
 // Tabs persistence: settings in localStorage, big blobs (images, uploaded audio) in IndexedDB.
-import { FINE_DEFAULTS } from "./engine.js";
+import { FINE_DEFAULTS, LAYOUTS } from "./engine.js";
 
 const KEY = "ascii-studio:tabs:v2";
 
@@ -15,6 +15,7 @@ export function newProject(name = "Untitled", patch = {}) {
     id: Math.random().toString(36).slice(2, 10),
     name,
     preset: "moon", hasImage: false, layout: "reels", seed: 7,
+    ...(({ name, ...v }) => v)(LAYOUTS.reels), zoom: 1, panX: 0, panY: 0,
     ramp: "classic", tint: "blood", streaks: 60, streakGain: 0.6, pulse: 0.3, loopSec: 6,
     ...FINE_DEFAULTS,
     username: "ascii.maker", caption: DEFAULT_CAPTION,

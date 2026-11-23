@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { W, H, LAYOUTS, PRESETS, FINE_DEFAULTS, buildLayers, makeStreaks, renderFrame, renderCode, describeVisual } from "./engine.js";
+import { W, H, LAYOUTS, LAYOUT_KEYS, PRESETS, FINE_DEFAULTS, buildLayers, makeStreaks, renderFrame, renderCode, describeVisual } from "./engine.js";
 import { loadTabs, saveTabs, newProject, putBlob, getBlob, delBlob, shrinkImage, blobToImage } from "./store.js";
 import engineSource from "./engine.js?raw";
 
@@ -86,10 +86,15 @@ export default function App() {
   const musicUrl = p.musicBlob ? audios.current.get(p.id) || null : p.musicUrl;
 
   // ---------- engine ----------
-  const L = LAYOUTS[p.layout] || LAYOUTS.reels, box = L.scene, loop = p.loopSec * 30;
+  // layout comes from the tab's own values (the layout buttons are presets for them)
+  const loop = p.loopSec * 30, box = { x: 0, y: 0, w: W, h: H };
+  const subject = { y: Math.round(p.subjectY), h: Math.round(Math.max(120, Math.min(H - p.subjectY, p.subjectH))) };
+  const codeW = p.codeFull ? W : 588, codeX = p.codeFull ? 0 : 28;
+  const code = p.showCode ? { top: p.codeY, bottom: Math.min(H, p.codeY + p.codeH), left: codeX, width: codeW, opacity: p.codeOpacity } : null;
   const layers = useMemo(
-    () => buildLayers({ preset: p.preset, image, cw: p.cellW, ch: p.cellH, sceneW: box.w, sceneH: box.h, seed: p.seed, subject: L.subject }),
-    [p.preset, image, p.cellW, p.cellH, p.layout, p.seed]
+    () => buildLayers({ preset: p.preset, image, cw: p.cellW, ch: p.cellH, sceneW: box.w, sceneH: box.h, seed: p.seed, subject,
+      framing: { zoom: p.zoom, panX: p.panX, panY: p.panY } }),
+    [p.preset, image, p.cellW, p.cellH, p.seed, subject.y, subject.h, p.zoom, p.panX, p.panY]
   );
   const streakList = useMemo(
     () => makeStreaks(layers, { count: p.streaks, loop, seed: p.seed, lenMin: p.lenMin, lenMax: p.lenMax, speed: p.speed,
@@ -105,7 +110,7 @@ export default function App() {
     const draw = () => {
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
       renderFrame(ctx, layers, streakList, tRef.current, opts);
-      if (L.code) renderCode(ctx, CODE_LINES, tRef.current, loop, L.code.top, L.code.bottom, L.code.left ?? box.x, L.code.width ?? box.w, L.code.overlay);
+      if (code) renderCode(ctx, CODE_LINES, tRef.current, loop, code.top, code.bottom, code.left, code.width, code.opacity);
     };
     const tick = (now) => {
       if (playing && now - last >= 1000 / 30) { last = now; tRef.current = (tRef.current + 1) % loop; draw(); }
@@ -136,7 +141,7 @@ export default function App() {
   };
 
   // every visual setting back to the defaults of a new project (source, texts and music are kept)
-  const VISUAL_KEYS = ["layout", "seed", "ramp", "tint", "streaks", "streakGain", "pulse", "loopSec", ...FINE_KEYS];
+  const VISUAL_KEYS = ["layout", ...LAYOUT_KEYS, "seed", "ramp", "tint", "streaks", "streakGain", "pulse", "loopSec", ...FINE_KEYS];
   const resetVisual = () => { const d = newProject(); set(Object.fromEntries(VISUAL_KEYS.map((k) => [k, d[k]]))); };
 
   // ---------- inputs ----------
@@ -338,7 +343,7 @@ export default function App() {
         <Section title="Layout">
           <div className="row">
             {Object.entries(LAYOUTS).map(([k, l]) => (
-              <button key={k} className={p.layout === k ? "on" : ""} onClick={() => set({ layout: k })}>{l.name}</button>
+              <button key={k} className={p.layout === k ? "on" : ""} onClick={() => { const { name, ...v } = l; set({ layout: k, ...v }); }}>{l.name}</button>
             ))}
           </div>
           <Toggle label="Show Instagram safe zones" v={guides} set={setGuides} />
@@ -356,6 +361,26 @@ export default function App() {
             <button onClick={() => setPlaying(!playing)}>{playing ? "❚❚ Pause" : "▶ Play"}</button>
           </div>
         </Section>
+
+        <Group title="Layout: background & code">
+          <p className="hint">Background / subject band</p>
+          <Slider label="Band top" v={p.subjectY} set={(v) => set({ subjectY: v, layout: "custom" })} min={0} max={900} step={4} />
+          <Slider label="Band height" v={p.subjectH} set={(v) => set({ subjectH: v, layout: "custom" })} min={200} max={1280} step={4} />
+          <Slider label="Zoom" v={p.zoom} set={field("zoom")} min={0.5} max={3} step={0.05} />
+          <Slider label="Shift X" v={p.panX} set={field("panX")} min={-1} max={1} step={0.01} />
+          <Slider label="Shift Y" v={p.panY} set={field("panY")} min={-1} max={1} step={0.01} />
+          <p className="hint">Code panel</p>
+          <Toggle label="Show code" v={p.showCode} set={(v) => set({ showCode: v, layout: "custom" })} />
+          {p.showCode && <>
+            <Slider label="Code top" v={p.codeY} set={(v) => set({ codeY: v, layout: "custom" })} min={0} max={1240} step={4} />
+            <Slider label="Code height" v={p.codeH} set={(v) => set({ codeH: v, layout: "custom" })} min={40} max={700} step={4} />
+            <Slider label="Panel opacity" v={p.codeOpacity} set={field("codeOpacity")} min={0} max={1} step={0.02} />
+            <Toggle label="Full width" v={p.codeFull} set={(v) => set({ codeFull: v, layout: "custom" })} />
+          </>}
+          <div className="row">
+            <button onClick={() => set({ zoom: 1, panX: 0, panY: 0 })}>Centre background</button>
+          </div>
+        </Group>
 
         <Group title="Tone">
           <Slider label="Brightness" v={p.brightness} set={field("brightness")} min={0.2} max={3} step={0.05} />

@@ -58,7 +58,12 @@ The default **Reels safe** layout fills the whole 9:16 frame with no black bars.
 | **Full frame** | 720×860 | 720×420 underneath | TikTok/Shorts with an overlay you control, plain video |
 | **No code** | 720×1280 | — | Background loops |
 
-In the Python renderers, `SAFE = True` at the top of the script does the same.
+The layout buttons are presets. **Fine-tune → Layout: background & code** adjusts each value per tab:
+- **Band top / Band height**: where the subject sits and how much of the frame it takes.
+- **Zoom / Shift X / Shift Y**: frame the image or scene inside the band. **Centre background** resets them.
+- **Show code / Code top / Code height / Panel opacity / Full width**: the code strip.
+
+In the Python renderers, `SAFE = True` at the top of the script keeps the older letterboxed layout.
 
 ## 🚀 Quick start
 

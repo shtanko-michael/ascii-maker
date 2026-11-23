@@ -8,13 +8,12 @@ export const TAU = Math.PI * 2;
 // the status bar / back button, bottom ~22% by caption + music, right ~13% by the
 // action buttons, and tall phones crop a few % off both sides.
 export const LAYOUTS = {
-  // full-bleed 9:16 frame; the subject sits in the band no phone covers and above the code (y 152..840),
-  // the code is a full-width translucent strip right under that band
-  reels: { name: "Reels safe", scene: { x: 0, y: 0, w: 720, h: 1280 }, subject: { y: 152, h: 688 },
-    code: { top: 846, bottom: 1004, left: 0, width: 720, overlay: true } },
-  full:  { name: "Full frame", scene: { x: 0, y: 0, w: 720, h: 860 }, code: { top: 860, bottom: 1280 } },
-  clean: { name: "No code",    scene: { x: 0, y: 0, w: 720, h: 1280 }, code: null },
+  // full-bleed 9:16 frame; the subject sits in the band no phone covers and the code strip goes under it
+  reels: { name: "Reels safe", subjectY: 152, subjectH: 688, showCode: true, codeY: 846, codeH: 158, codeFull: true, codeOpacity: 0.88 },
+  full:  { name: "Classic",    subjectY: 0,   subjectH: 860, showCode: true, codeY: 860, codeH: 420, codeFull: true, codeOpacity: 1 },
+  clean: { name: "No code",    subjectY: 152, subjectH: 860, showCode: false, codeY: 846, codeH: 158, codeFull: true, codeOpacity: 0.88 },
 };
+export const LAYOUT_KEYS = ["subjectY", "subjectH", "showCode", "codeY", "codeH", "codeFull", "codeOpacity", "panX", "panY", "zoom"];
 
 const ease = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
 
@@ -141,7 +140,7 @@ function sample(canvas, cols, rows) {
 // put the subject band into the full frame: underneath, a blurred, dimmed copy of the same
 // scene stretched to the whole frame (no hard edges, no smeared stripes); the band itself
 // fades into it over `feather` px at the top and bottom
-function placeBand(src, w, h, y0, bh, feather = 90) {
+function placeBand(src, w, h, y0, bh, { zoom = 1, panX = 0, panY = 0 } = {}, feather = 90) {
   const c = makeCanvas(w, h), g = c.getContext("2d");
   const k = Math.max(w / src.width, h / src.height);
   g.filter = "blur(28px)"; g.globalAlpha = 0.22;
@@ -155,7 +154,9 @@ function placeBand(src, w, h, y0, bh, feather = 90) {
   g.fillStyle = v; g.fillRect(0, 0, w, h);
   g.globalCompositeOperation = "source-over";
   const band = makeCanvas(w, bh), bg = band.getContext("2d");
-  bg.drawImage(src, 0, 0);
+  // zoom around the centre, then shift: pan -1..1 moves by up to half the band
+  const zw = src.width * zoom, zh = src.height * zoom;
+  bg.drawImage(src, (w - zw) / 2 + panX * w / 2, (bh - zh) / 2 + panY * bh / 2, zw, zh);
   bg.globalCompositeOperation = "destination-in";
   const grad = bg.createLinearGradient(0, 0, 0, bh), f = Math.min(0.45, feather / bh);
   grad.addColorStop(0, "rgba(0,0,0,0)"); grad.addColorStop(f, "rgba(0,0,0,1)");
@@ -165,7 +166,7 @@ function placeBand(src, w, h, y0, bh, feather = 90) {
   return c;
 }
 
-export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, subject = null, redGain = 1.6, whiteGain = 1.15 }) {
+export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, subject = null, framing = {}, redGain = 1.6, whiteGain = 1.15 }) {
   const cols = Math.floor(sceneW / cw), rows = Math.floor(sceneH / ch);
   const lum = new Float32Array(cols * rows), red = new Float32Array(cols * rows);
   let emitter;
@@ -176,7 +177,7 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, s
     const s = Math.max(sceneW / image.width, bh / image.height);
     const iw = image.width * s, ih = image.height * s;
     c.drawImage(image, (sceneW - iw) / 2, (bh - ih) / 2, iw, ih);
-    if (subject) cv = placeBand(cv, sceneW, sceneH, by, bh);
+    if (subject) cv = placeBand(cv, sceneW, sceneH, by, bh, framing);
     const d = sample(cv, cols, rows);
     for (let i = 0; i < cols * rows; i++) {
       const al = d[i * 4 + 3] / 255;   // getImageData is un-premultiplied: apply alpha so faded areas really go dark
@@ -190,11 +191,13 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, s
     const bh = subject ? subject.h : sceneH, by = subject ? subject.y : 0;
     let Lc = makeCanvas(sceneW, bh), Rc = makeCanvas(sceneW, bh);
     p.draw(Lc.getContext("2d"), Rc.getContext("2d"), sceneW, bh, rng(seed));
-    if (subject) { Lc = placeBand(Lc, sceneW, sceneH, by, bh); Rc = placeBand(Rc, sceneW, sceneH, by, bh); }
+    if (subject) { Lc = placeBand(Lc, sceneW, sceneH, by, bh, framing); Rc = placeBand(Rc, sceneW, sceneH, by, bh, framing); }
     const dl = sample(Lc, cols, rows), dr = sample(Rc, cols, rows);
     for (let i = 0; i < cols * rows; i++) { lum[i] = dl[i * 4 + 3] / 255; red[i] = dr[i * 4 + 3] / 255; }
     const e = p.emitter(bh), k = sceneW / 720;   // presets are authored for 720 wide
-    emitter = { x: e.x * k, y: e.y + by, spread: e.spread * k };
+    const z = framing.zoom || 1, cxm = sceneW / 2, cym = bh / 2;
+    emitter = { x: cxm + (e.x * k - cxm) * z + (framing.panX || 0) * sceneW / 2,
+      y: by + cym + (e.y - cym) * z + (framing.panY || 0) * bh / 2, spread: e.spread * k * z };
   }
   let ml = 0, mr = 0;
   for (let i = 0; i < lum.length; i++) { ml += lum[i]; mr += red[i]; }
@@ -319,9 +322,9 @@ export const FINE_DEFAULTS = {
 };
 
 // scrolling source-code panel under the scene
-export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W, overlay = false) {
+export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W, opacity = 1) {
   const h = bottom - top, lh = 20;
-  ctx.fillStyle = overlay ? "rgba(8,8,10,0.88)" : "#0c0c0e"; ctx.fillRect(left, top, width, h);
+  ctx.fillStyle = `rgba(10,10,12,${opacity})`; ctx.fillRect(left, top, width, h);
   ctx.fillStyle = "#3c1414"; ctx.fillRect(left, top, width, 1);
   ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, h); ctx.clip();
   ctx.font = "15px ui-monospace, Menlo, Consolas, monospace"; ctx.textBaseline = "top";
