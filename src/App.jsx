@@ -1,18 +1,31 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { W, H, LAYOUTS, LAYOUT_KEYS, PRESETS, PALETTES, FINE_DEFAULTS, buildLayers, makeStreaks, renderFrame, renderCode, describeVisual } from "./engine.js";
+import { W, H, LAYOUTS, LAYOUT_KEYS, PRESETS, PALETTES, FINE_DEFAULTS, buildLayers, makeStreaks, renderFrame, renderCode, renderIntro,
+  sceneCode, orderByInk, describeVisual } from "./engine.js";
 import { loadTabs, saveTabs, newProject, putBlob, getBlob, delBlob, shrinkImage, blobToImage } from "./store.js";
 import engineSource from "./engine.js?raw";
+import pythonSource from "../python/crucifix.py?raw";
 
-const CODE_LINES = engineSource.split("\n").filter((l) => l.trim());
+const toLines = (src) => src.split("\n").filter((l) => l.trim());
+// what the code panel shows: the code of the scene on screen, the whole engine, the Python renderer or your own text
+const CODE_SOURCES = { scene: "This scene", engine: "Whole engine", python: "Python renderer", custom: "My code" };
+function codeLinesFor(p) {
+  if (p.codeSource === "engine") return toLines(engineSource);
+  if (p.codeSource === "python") return toLines(pythonSource);
+  if (p.codeSource === "custom") return p.codeText?.trim() ? toLines(p.codeText) : ["// paste your code in Layout → Code in panel"];
+  const key = p.hasImage || p.hasVideo ? "image" : p.preset;
+  return toLines(sceneCode(engineSource, key) || engineSource);
+}
 const RAMPS = {
   classic: " .,:;-=+*cox%#@",
   blocks: " ░▒▓█",
   dense: " .'`^\",:;Il!i><~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$",
   binary: " 01",
   dots: " ·•●",
-  katakana: " ･ｰｼﾂｦｱｳｴｵｶｷｸｹｺｻ",
+  katakana: " ･ｰｦｧｨｩｪｫｬｭｮｯｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ",
   lines: " .-=≡#",
 };
+const INK_SORTED = new Set(["katakana"]);   // ramps sorted at runtime by how much ink each glyph has
+const rampFor = (key, bold) => { const r = RAMPS[key] || RAMPS.classic; return INK_SORTED.has(key) ? orderByInk(r, bold) : r; };
 const TINTS = { blood: [1, 0.06, 0.06], ember: [1, 0.45, 0.1], toxic: [0.3, 1, 0.3], ice: [0.3, 0.6, 1], violet: [0.7, 0.3, 1], gold: [1, 0.8, 0.3], mono: [0.6, 0.6, 0.6] };
 const SUGGESTED = ["asciiart", "generativeart", "creativecoding", "codeart", "darkart", "proceduralart", "glitchart",
   "digitalart", "surrealart", "newmediaart", "algorithmicart", "textart", "loopanimation", "javascript", "dailyart"];
@@ -46,6 +59,7 @@ export default function App() {
   const [, bump] = useState(0);
 
   const canvasRef = useRef(null), audioRef = useRef(null), tRef = useRef(0);
+  const introRef = useRef(-1);   // frame of the "code first" intro, -1 = intro is not playing
   const images = useRef(new Map()), audios = useRef(new Map()), graphs = useRef(new WeakMap());
   const videos = useRef(new Map()), videoRef = useRef(null);   // tabId -> object URL of the source video
 
@@ -109,7 +123,9 @@ export default function App() {
       emitX: p.emitX, emitY: p.emitY, emitSpread: p.emitSpread }),
     [layers, p.streaks, loop, p.seed, p.lenMin, p.lenMax, p.speed, p.emitX, p.emitY, p.emitSpread]
   );
-  const opts = { ...Object.fromEntries(FINE_KEYS.map((k) => [k, p[k]])), ramp: RAMPS[p.ramp] || RAMPS.classic,
+  const codeLines = useMemo(() => codeLinesFor(p), [p.codeSource, p.codeText, p.preset, p.hasImage, p.hasVideo]);
+  const introFrames = Math.round((p.introSec || 0) * 30);
+  const opts = { ...Object.fromEntries(FINE_KEYS.map((k) => [k, p[k]])), ramp: rampFor(p.ramp, p.bold),
     tint: TINTS[p.tint] || TINTS.blood, streakGain: p.streakGain, pulse: p.pulse, loop, x: box.x, y: box.y };
 
   useEffect(() => {
@@ -119,16 +135,26 @@ export default function App() {
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
       const v = videoRef.current;
       const L = p.hasVideo && v && v.readyState >= 2 ? buildFrom(v) : layers;   // live video: fresh frame each tick
+      if (introRef.current >= 0) return renderIntro(ctx, L, streakList, introRef.current, introFrames, opts, code, codeLines);
       renderFrame(ctx, L, streakList, tRef.current, opts);
-      if (code) renderCode(ctx, CODE_LINES, tRef.current, loop, code.top, code.bottom, code.left, code.width, code.opacity);
+      if (code) renderCode(ctx, codeLines, tRef.current, loop, code.top, code.bottom, code.left, code.width, code.opacity);
     };
     const tick = (now) => {
-      if (playing && now - last >= 1000 / 30) { last = now; tRef.current = (tRef.current + 1) % loop; draw(); }
+      if (playing && now - last >= 1000 / 30) {
+        last = now;
+        if (introRef.current >= 0) { if (++introRef.current >= introFrames) { introRef.current = -1; tRef.current = 0; } }
+        else tRef.current = (tRef.current + 1) % loop;
+        draw();
+      }
       raf = requestAnimationFrame(tick);
     };
     draw(); raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   });
+
+  // play the intro once whenever it is switched on or its length changes
+  const playIntro = () => { introRef.current = introFrames > 0 ? 0 : -1; tRef.current = 0; };
+  useEffect(playIntro, [p.id, introFrames]);
 
   useEffect(() => {
     const v = videoRef.current; if (!v || !videoUrl || busy === "video") return;
@@ -157,7 +183,7 @@ export default function App() {
   };
 
   // every visual setting back to the defaults of a new project (source, texts and music are kept)
-  const VISUAL_KEYS = ["layout", ...LAYOUT_KEYS, "seed", "ramp", "tint", "streaks", "streakGain", "pulse", "loopSec", ...FINE_KEYS];
+  const VISUAL_KEYS = ["layout", ...LAYOUT_KEYS, "seed", "ramp", "tint", "streaks", "streakGain", "pulse", "loopSec", "codeSource", "introSec", ...FINE_KEYS];
   const resetVisual = () => { const d = newProject(); set(Object.fromEntries(VISUAL_KEYS.map((k) => [k, d[k]]))); };
 
   // ---------- inputs ----------
@@ -256,8 +282,8 @@ export default function App() {
     const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
     const chunks = []; rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     const done = new Promise((res) => (rec.onstop = res));
-    tRef.current = 0; setPlaying(true); rec.start();
-    const total = Math.max(p.loopSec, musicUrl ? Math.min(p.musicSec, 90) : p.loopSec < 15 ? p.loopSec * 2 : p.loopSec) * 1000, t0 = Date.now();
+    playIntro(); setPlaying(true); rec.start();
+    const total = (Math.max(p.loopSec, musicUrl ? Math.min(p.musicSec, 90) : p.loopSec < 15 ? p.loopSec * 2 : p.loopSec) + (p.introSec || 0)) * 1000, t0 = Date.now();
     while (Date.now() - t0 < total) { onProgress((Date.now() - t0) / total); await new Promise((r) => setTimeout(r, 250)); }
     rec.stop(); await done;
     return new Blob(chunks, { type: "video/webm" });
@@ -279,18 +305,22 @@ export default function App() {
     const v = videoRef.current;
     if (!v || !v.duration) throw new Error("The video is not loaded yet");
     setBusy("video"); setPlaying(false); v.pause();
-    const fps = p.videoFps, dur = Math.min(v.duration, p.videoMax), n = Math.max(1, Math.floor(dur * fps));
+    const fps = p.videoFps, dur = Math.min(v.duration, p.videoMax), ni = Math.round((p.introSec || 0) * fps);
+    const n = ni + Math.max(1, Math.floor(dur * fps));   // intro frames (on the first video frame), then the video
     const r = await fetch("/api/vrender/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fps }) });
     const { id, error } = await r.json();
     if (!r.ok) throw new Error(error);
     const cv = canvasRef.current, ctx = cv.getContext("2d"), pending = [], t0 = Date.now();
     try {
       for (let i = 0; i < n; i++) {
-        await seek(v, i / fps);
+        await seek(v, Math.max(0, i - ni) / fps);
         ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
-        const tt = Math.round(i * 30 / fps);              // engine time runs at 30 ticks per second
-        renderFrame(ctx, buildFrom(v), streakList, tt, opts);
-        if (code) renderCode(ctx, CODE_LINES, tt, loop, code.top, code.bottom, code.left, code.width, code.opacity);
+        const tt = Math.round(Math.max(0, i - ni) * 30 / fps);   // engine time runs at 30 ticks per second
+        if (i < ni) renderIntro(ctx, buildFrom(v), streakList, Math.round(i * 30 / fps), introFrames, opts, code, codeLines);
+        else {
+          renderFrame(ctx, buildFrom(v), streakList, tt, opts);
+          if (code) renderCode(ctx, codeLines, tt, loop, code.top, code.bottom, code.left, code.width, code.opacity);
+        }
         const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.92));
         pending.push(fetch(`/api/vrender/${id}/frame/${i}`, { method: "POST", body: blob }).then((x) => { if (!x.ok) throw new Error("frame upload failed"); }));
         if (pending.length >= 6) await pending.shift();
@@ -430,6 +460,14 @@ export default function App() {
             ))}
           </div>
           <Toggle label="Show Instagram safe zones" v={guides} set={setGuides} />
+          <Select label="Code in panel" v={p.codeSource} set={field("codeSource")} opts={Object.keys(CODE_SOURCES)} names={CODE_SOURCES} />
+          {p.codeSource === "custom" && <textarea rows={5} className="code" value={p.codeText} spellCheck={false}
+            placeholder="Paste the code to scroll in the panel" onChange={(e) => set({ codeText: e.target.value })} />}
+          <Slider label="Intro: code first, s" v={p.introSec} set={field("introSec")} min={0} max={4} step={0.5} />
+          {p.introSec > 0 && <div className="row">
+            <button onClick={() => { playIntro(); setPlaying(true); }}>▶ Replay intro</button>
+          </div>}
+          {p.introSec > 0 && <p className="hint">The code types over the whole frame, then slides down while the scene resolves. Export and publishing start with it.</p>}
         </Section>
 
         <Section title="Look">
@@ -533,6 +571,7 @@ export default function App() {
           <Slider label="Flicker" v={p.flicker} set={field("flicker")} min={0} max={0.6} step={0.01} />
           <Slider label="Vignette" v={p.vignette} set={field("vignette")} min={0} max={1} step={0.05} />
           <Slider label="Scanlines" v={p.scanlines} set={field("scanlines")} min={0} max={0.8} step={0.05} />
+          <Slider label="Film shake, px" v={p.shake} set={field("shake")} min={0} max={6} step={0.5} />
         </Group>
         <div className="resetbar">
           <button className={"wide" + (confirmReset ? " danger" : "")} onBlur={() => setConfirmReset(false)}
@@ -775,8 +814,9 @@ const Group = ({ title, children }) => <details className="group"><summary>{titl
 const Slider = ({ label, v, set, min, max, step = 1 }) => (
   <label className="slider"><span>{label}</span><input type="range" min={min} max={max} step={step} value={v ?? min} onChange={(e) => set(Number(e.target.value))} /><em>{v}</em></label>
 );
-const Select = ({ label, v, set, opts }) => (
-  <label className="slider"><span>{label}</span><select value={v} onChange={(e) => set(e.target.value)}>{opts.map((o) => <option key={o}>{o}</option>)}</select></label>
+const Select = ({ label, v, set, opts, names }) => (
+  <label className="slider"><span>{label}</span><select value={v} onChange={(e) => set(e.target.value)}>
+    {opts.map((o) => <option key={o} value={o}>{names?.[o] || o}</option>)}</select></label>
 );
 const Toggle = ({ label, v, set }) => (
   <label className="chk"><input type="checkbox" checked={!!v} onChange={(e) => set(e.target.checked)} /> {label}</label>
