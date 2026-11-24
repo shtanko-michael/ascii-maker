@@ -18,6 +18,7 @@
 |---|---|
 | 🖼 **Scenes** | Built-in procedural scenes (*Moon*, *Monolith*, *Cross*, *Wires*), **your own image**, or **a video**: every frame is converted, audio is dropped |
 | 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`, `katakana`, `lines`), cell size, colour tints. `katakana` is sorted by how much ink each glyph has in your font |
+| 🎨 **Colour** | **Red / white** (default), **Original colours** of your image or video, or **Palette** gradient maps: amber, matrix, cyberpunk, sunset, ocean, sepia, fire & ice, vapor |
 | 🌧 **Animation** | Falling glowing streaks, a travelling pulse, flicker; seamless loops from 2 to **60 s** |
 | 🧾 **Code panel** | Code scrolls under the scene, like in the creative-coding reels: the code of **the scene on screen**, the whole engine, the Python renderer or your own pasted code |
 | ⌨️ **Code-first intro** | The reel opens with code typing over the whole frame; the panel then slides down and the scene resolves out of the glyphs |
