@@ -17,6 +17,7 @@ export function newProject(name = "Untitled", patch = {}) {
     preset: "moon", hasImage: false, hasVideo: false, videoName: "", videoFps: 30, videoMax: 60, layout: "reels", seed: 7,
     ...(({ name, ...v }) => v)(LAYOUTS.reels), zoom: 1, panX: 0, panY: 0,
     ramp: "classic", tint: "blood", streaks: 60, streakGain: 0.6, pulse: 0.3, loopSec: 6,
+    codeSource: "scene", codeText: "", introSec: 0,
     ...FINE_DEFAULTS,
     username: "ascii.maker", caption: DEFAULT_CAPTION,
     tags: ["asciiart", "generativeart", "creativecoding", "codeart", "darkart"],

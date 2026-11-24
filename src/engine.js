@@ -25,6 +25,7 @@ export function rng(seed) {
 
 // ---------- built-in scenes: draw white parts on `L`, red parts on `R` ----------
 export const PRESETS = {
+  // @scene moon
   moon: {
     name: "Moon",
     emitter: (h) => ({ x: 360, y: h * 0.12, spread: 330 }),
@@ -58,6 +59,7 @@ export const PRESETS = {
       for (let i = 0; i < 120; i++) R.fillRect(rnd() * w, rnd() * h * 0.55, 2, 2);
     },
   },
+  // @scene crucifix
   crucifix: {
     name: "Cross",
     emitter: (h) => ({ x: 360, y: h * 0.31, spread: 220 }),
@@ -90,6 +92,7 @@ export const PRESETS = {
       bokehAndEmbers(R, w, h, rnd);
     },
   },
+  // @scene monolith
   monolith: {
     name: "Monolith",
     emitter: (h) => ({ x: 360, y: h * 0.56, spread: 55 }),
@@ -114,14 +117,90 @@ export const PRESETS = {
       bokehAndEmbers(R, w, h, rnd);
     },
   },
+  // @scene wires
+  // power lines at dusk: white poles and sagging wires, a red sun sinking behind the town
+  wires: {
+    name: "Wires",
+    emitter: (h) => ({ x: 380, y: h * 0.3, spread: 340 }),
+    draw(L, R, w, h, rnd) {
+      const sx = w / 720, sy = h / 860, X = (x) => x * sx, Y = (y) => y * sy;
+      const sky = R.createLinearGradient(0, 0, 0, h);              // dusk glow low on the horizon
+      sky.addColorStop(0, "rgba(255,255,255,0)"); sky.addColorStop(0.55, "rgba(255,255,255,0.04)");
+      sky.addColorStop(0.8, "rgba(255,255,255,0.22)"); sky.addColorStop(1, "rgba(255,255,255,0.05)");
+      R.fillStyle = sky; R.fillRect(0, 0, w, h);
+      R.filter = "blur(36px)"; R.fillStyle = "rgba(255,255,255,0.6)";  // sun: halo + disc
+      R.beginPath(); R.arc(X(250), Y(560), X(175), 0, TAU); R.fill();
+      R.filter = "blur(1px)"; R.fillStyle = "#fff";
+      R.beginPath(); R.arc(X(250), Y(560), X(105), 0, TAU); R.fill(); R.filter = "none";
+      // the town on the horizon hides the bottom of the sun
+      const roofs = [];
+      for (let x = -20; x < 740; x += 26 + rnd() * 40) roofs.push([x, 690 - 14 - rnd() * 40]);
+      R.globalCompositeOperation = "destination-out"; R.fillStyle = "#000";
+      roofs.forEach(([x, y]) => R.fillRect(X(x), Y(y), X(48), h));
+      R.fillRect(0, Y(700), w, h); R.globalCompositeOperation = "source-over";
+      L.fillStyle = "rgba(255,255,255,0.16)";
+      roofs.forEach(([x, y]) => L.fillRect(X(x), Y(y), X(48), Y(700 - y)));
+      L.fillStyle = "rgba(255,255,255,0.5)";                         // lit windows
+      roofs.forEach(([x, y]) => { if (rnd() < 0.5) L.fillRect(X(x + 10 + rnd() * 26), Y(y + 14 + rnd() * 20), X(6), Y(6)); });
+      // poles: x, top, width, crossarm length; returns where the wires hang
+      const pole = (x, top, pw, arm) => {
+        L.fillStyle = "#fff";
+        L.fillRect(X(x - pw / 2), Y(top), X(pw), h);
+        L.fillRect(X(x - arm / 2), Y(top + 24), X(arm), Y(pw * 0.6));
+        L.fillRect(X(x - arm * 0.35), Y(top + 70), X(arm * 0.7), Y(pw * 0.5));
+        return [-0.5, -0.17, 0.17, 0.5].map((k) => [x + k * arm, top + 22])
+          .concat([-0.35, 0.35].map((k) => [x + k * arm, top + 68]));
+      };
+      const a = pole(110, 70, 18, 170), b = pole(560, 330, 9, 84);
+      const wire = (p, q, sag) => {                                    // a sagging span
+        L.strokeStyle = "#fff"; L.lineWidth = X(5);
+        L.beginPath(); L.moveTo(X(p[0]), Y(p[1]));
+        L.quadraticCurveTo(X((p[0] + q[0]) / 2), Y((p[1] + q[1]) / 2 + sag), X(q[0]), Y(q[1])); L.stroke();
+      };
+      a.forEach((p, i) => { wire(p, b[i], 70 + i * 6); wire([-60, p[1] - 160], p, 40); wire(b[i], [780, b[i][1] + 70], 18); });
+      // birds resting on the third wire
+      const [p, q] = [a[2], b[2]], mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2 + 82];
+      L.fillStyle = "#fff";
+      [0.38, 0.44, 0.71].forEach((u) => {
+        const bx = (1 - u) ** 2 * p[0] + 2 * u * (1 - u) * mid[0] + u * u * q[0];
+        const by = (1 - u) ** 2 * p[1] + 2 * u * (1 - u) * mid[1] + u * u * q[1];
+        L.beginPath(); L.ellipse(X(bx), Y(by - 9), X(7), Y(9), 0, 0, TAU); L.fill();
+        L.beginPath(); L.arc(X(bx + 4), Y(by - 20), X(5), 0, TAU); L.fill();
+      });
+      L.fillStyle = "rgba(255,255,255,0.55)";                          // first stars
+      for (let i = 0; i < 50; i++) L.fillRect(rnd() * w, rnd() * h * 0.4, 2, 2);
+    },
+  },
+  // @end
 };
 
+// ---------- code of one scene, for the code panel ----------
+// The engine's own source is split by "// @scene <key>" ... "// @end" markers. sceneCode() cuts out
+// the block of one scene and appends the helpers it calls ("// @helper <name>").
+export function sceneCode(src, key) {
+  const lines = src.split("\n"), blocks = {}, helpers = {};
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/^\s*\/\/ @(scene|helper|end)\s*(\w*)/);
+    if (m) { cur = m[1] === "end" ? null : { kind: m[1], name: m[2], lines: [] }; if (cur) (cur.kind === "scene" ? blocks : helpers)[cur.name] = cur.lines; continue; }
+    if (cur) cur.lines.push(line);
+  }
+  const body = blocks[key];
+  if (!body) return null;
+  const pad = Math.min(...body.filter((l) => l.trim()).map((l) => l.match(/^ */)[0].length));
+  const out = [`// scene "${key}" · src/engine.js`, ...body.map((l) => l.slice(pad))];
+  for (const [name, h] of Object.entries(helpers)) if (body.some((l) => l.includes(name + "("))) out.push("", ...h);
+  return out.join("\n");
+}
+
+// @helper bokehAndEmbers
 function bokehAndEmbers(R, w, h, rnd) {
   R.filter = "blur(6px)"; R.fillStyle = "rgba(255,255,255,0.3)";
   for (let i = 0; i < 5; i++) { R.beginPath(); R.arc(rnd() * w, 80 + rnd() * (h - 160), 40 + rnd() * 40, 0, TAU); R.fill(); }
   R.filter = "none"; R.fillStyle = "rgba(255,255,255,0.6)";
   for (let i = 0; i < 200; i++) R.fillRect(rnd() * w, rnd() * h, 2, 2);
 }
+// @end
 
 // ---------- build static layers on the grid ----------
 function makeCanvas(w, h) {
@@ -171,6 +250,7 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, s
   const lum = new Float32Array(cols * rows), red = new Float32Array(cols * rows);
   let emitter;
   if (image) {
+    // @scene image
     // cover-crop the image into the subject band (or the whole scene), then extend its edges
     const bh = subject ? subject.h : sceneH, by = subject ? subject.y : 0;
     let cv = makeCanvas(sceneW, bh); const c = cv.getContext("2d");
@@ -188,6 +268,7 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, s
       lum[i] = Math.min(1, Math.min(r, g, b) * whiteGain);                 // whites/greys
     }
     emitter = brightestBlob(lum, cols, rows, cw, ch);
+    // @end
   } else {
     const p = PRESETS[preset];
     const bh = subject ? subject.h : sceneH, by = subject ? subject.y : 0;
@@ -244,7 +325,12 @@ const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
 
 export function renderFrame(ctx, L, S, t, o) {
   const { cols, rows, lum, red, cw, ch } = L;
-  const ox = o.x || 0, oy = o.y || 0, loop = o.loop, dir = o.direction === "up" ? -1 : 1;
+  let ox = o.x || 0, oy = o.y || 0;
+  const loop = o.loop, dir = o.direction === "up" ? -1 : 1;
+  if (o.shake) {   // film gate weave: the whole frame jumps a little; seeded by t, so the loop stays seamless
+    const sr = rng(((t % loop) + loop) % loop * 7919 + 13);
+    ox += (sr() - 0.5) * 2 * o.shake; oy += (sr() - 0.5) * 2 * o.shake;
+  }
 
   // 1) streak field
   const field = new Float32Array(cols * rows);
@@ -320,26 +406,77 @@ export const FINE_DEFAULTS = {
   streakColor: "#ffffff", thickness: 1, lenMin: 200, lenMax: 500, speed: 3, accel: 1.4,
   wobble: 4, fade: 0.7, direction: "down", emitX: null, emitY: null, emitSpread: null,
   pulseWave: 120, pulseSpeed: 2, flicker: 0.08,
-  vignette: 0, scanlines: 0, jitter: 0, jitterEvery: 3,
+  vignette: 0, scanlines: 0, jitter: 0, jitterEvery: 3, shake: 0,
 };
 
+// ---------- glyph ramps ordered by ink ----------
+// A ramp must go from empty to full. For scripts like katakana nobody knows the order by heart,
+// so measure how much of a cell each glyph covers in the font the browser actually uses.
+const inkCache = new Map();
+export function orderByInk(chars, bold = false) {
+  const key = (bold ? "b|" : "") + chars;
+  if (inkCache.has(key)) return inkCache.get(key);
+  const s = 40, c = makeCanvas(s, s), g = c.getContext("2d", { willReadFrequently: true });
+  g.font = `${bold ? "700 " : ""}32px ui-monospace, Menlo, Consolas, monospace`; g.textBaseline = "top"; g.fillStyle = "#fff";
+  const glyphs = [...new Set(Array.from(chars))].filter((ch) => ch !== " ");
+  const ink = new Map(glyphs.map((ch) => {
+    g.clearRect(0, 0, s, s); g.fillText(ch, 4, 4);
+    const d = g.getImageData(0, 0, s, s).data; let a = 0;
+    for (let i = 3; i < d.length; i += 4) a += d[i];
+    return [ch, a];
+  }));
+  const out = " " + glyphs.sort((a, b) => ink.get(a) - ink.get(b)).join("");
+  inkCache.set(key, out);
+  return out;
+}
+
 // scrolling source-code panel under the scene
-export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W, opacity = 1) {
-  const h = bottom - top, lh = 20;
+// `chars` limits how many characters are shown (the "typing" intro), `caret` draws a block cursor after them
+export const CODE_COLS = 72, CODE_LH = 20;
+export function renderCode(ctx, lines, t, loop, top, bottom = H, left = 0, width = W, opacity = 1, { chars = Infinity, caret = false } = {}) {
+  const h = bottom - top, lh = CODE_LH, typing = chars !== Infinity;
+  if (h <= 0 || !lines.length) return;
   ctx.fillStyle = `rgba(10,10,12,${opacity})`; ctx.fillRect(left, top, width, h);
   ctx.fillStyle = "#3c1414"; ctx.fillRect(left, top, width, 1);
   ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, h); ctx.clip();
   ctx.font = "15px ui-monospace, Menlo, Consolas, monospace"; ctx.textBaseline = "top";
   const off = (t / loop) * lines.length * lh, first = Math.floor(off / lh);
-  for (let i = -1; i < h / lh + 2; i++) {
+  let budget = chars;
+  for (let i = typing ? 0 : -1; i < h / lh + 2; i++) {
     const n = (((first + i) % lines.length) + lines.length) % lines.length;
-    const y = top + 12 + i * lh - (off % lh), line = lines[n], s = line.trim();
+    const y = top + 12 + i * lh - (off % lh), line = lines[n].slice(0, CODE_COLS), s = line.trim();
+    const shown = typing ? line.slice(0, Math.max(0, budget)) : line;
     ctx.fillStyle = "#46464f"; ctx.fillText(String(n + 1).padStart(3), left + 10, y);
-    ctx.fillStyle = s.startsWith("//") ? "#6e6e78"
-      : /^(export |function |const |for |if |return)/.test(s) ? "#e65a5a" : "#c8c8cd";
-    ctx.fillText(line.slice(0, 72), left + 52, y);
+    ctx.fillStyle = s.startsWith("//") || s.startsWith("#") ? "#6e6e78"
+      : /^(export |function |const |let |for |if |return|def |class |import |from |while )/.test(s) ? "#e65a5a" : "#c8c8cd";
+    ctx.fillText(shown, left + 52, y);
+    if (typing && (budget -= line.length + 1) < 0) {   // the line being typed right now
+      if (caret) { ctx.fillStyle = "#e65a5a"; ctx.fillRect(left + 52 + ctx.measureText(shown).width + 1, y, 8, 16); }
+      break;
+    }
   }
   ctx.restore();
+}
+
+// ---------- "code first" intro ----------
+// The code types itself over the whole frame, then the panel slides down into its place while
+// the scene resolves out of scrambled glyphs, brightest parts first. Frame f of `frames` (30 per s).
+// The last intro frame hands over to frame 0 of the loop, so intro + loop play as one shot.
+export function renderIntro(ctx, L, S, f, frames, o, code, lines) {
+  const u = frames > 1 ? Math.min(1, f / (frames - 1)) : 1, split = 0.55;
+  const end = code || { top: H, bottom: H + CODE_LH, left: 0, width: W, opacity: 1 };   // no code panel: slide out
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  if (u < split) {
+    const fit = lines.slice(0, Math.floor((H - 12) / CODE_LH)).reduce((a, l) => a + Math.min(CODE_COLS, l.length) + 1, 0);
+    const typed = Math.round(fit * Math.min(1, u / (split * 0.85)));
+    renderCode(ctx, lines, 0, 1, 0, H, 0, W, 1, { chars: typed, caret: Math.floor(f / 5) % 2 === 0 || typed < fit });
+    return;
+  }
+  const k = ease((u - split) / (1 - split)), mix = (a, b) => a + (b - a) * k;
+  const t = (((f - frames) % o.loop) + o.loop) % o.loop;
+  renderFrame(ctx, L, S, t, { ...o, threshold: mix(1, o.threshold), jitter: mix(0.6, o.jitter), jitterEvery: 1 });
+  renderCode(ctx, lines, 0, 1, mix(0, end.top), mix(H, end.bottom), mix(0, end.left), mix(W, end.width), mix(1, end.opacity),
+    { chars: 1e9 });
 }
 
 // turn the picture into words for a music prompt

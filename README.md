@@ -16,14 +16,15 @@
 
 | | |
 |---|---|
-| 🖼 **Scenes** | Built-in procedural scenes (*Moon*, *Monolith*, *Cross*), **your own image**, or **a video**: every frame is converted, audio is dropped |
-| 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`), cell size, colour tints |
+| 🖼 **Scenes** | Built-in procedural scenes (*Moon*, *Monolith*, *Cross*, *Wires*), **your own image**, or **a video**: every frame is converted, audio is dropped |
+| 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`, `katakana`, `lines`), cell size, colour tints. `katakana` is sorted by how much ink each glyph has in your font |
 | 🌧 **Animation** | Falling glowing streaks, a travelling pulse, flicker; seamless loops from 2 to **60 s** |
-| 🧾 **Code panel** | The engine's own source code scrolls under the scene, like in the creative-coding reels |
+| 🧾 **Code panel** | Code scrolls under the scene, like in the creative-coding reels: the code of **the scene on screen**, the whole engine, the Python renderer or your own pasted code |
+| ⌨️ **Code-first intro** | The reel opens with code typing over the whole frame; the panel then slides down and the scene resolves out of the glyphs |
 | 🛡 **Reels-safe layout** | Scene and code are placed so the Instagram UI never covers them; safe-zone overlay in the preview |
 | 📱 **Instagram preview** | **Reels**, **Feed 4:5** and **Raw** views with a realistic overlay: avatar, caption with "… more", music ticker, side actions |
 | 🗂 **Tabs with autosave** | Every scene is a tab; settings, image, caption and music are saved automatically (localStorage + IndexedDB) and survive reloads |
-| 🎛 **Fine-tuning** | Tone (brightness, contrast, gamma, threshold, invert), glyph grid (cell width/height, font scale, bold, jitter), colour modes, streak length, speed, direction, source, wobble, pulse, flicker, vignette, scanlines |
+| 🎛 **Fine-tuning** | Tone (brightness, contrast, gamma, threshold, invert), glyph grid (cell width/height, font scale, bold, jitter), colour modes, streak length, speed, direction, source, wobble, pulse, flicker, vignette, scanlines, film shake |
 | ✨ **Claude** | Write a short **brief**, and your local `claude` CLI writes the caption and **5 hashtags** from it while looking at the current frame; a separate button writes the music prompt |
 | #️⃣ **Caption & hashtags** | Caption editor with a 2200-character counter; hashtags capped at **5**, the Instagram limit; one-click copy |
 | 🎵 **AI music** | Generates a track with the **ElevenLabs CLI** (REST fallback) and a **live progress bar**: stage, %, elapsed, ETA and bytes received |
@@ -143,6 +144,23 @@ The tokens last about 60 days; the server refreshes them automatically.
 
 Install [ffmpeg](https://ffmpeg.org) (`winget install ffmpeg` · `brew install ffmpeg`).
 Without it you get a `.webm`, and Instagram may not accept that format.
+
+## 🧾 Code panel & code-first intro
+
+**Layout → Code in panel** picks what scrolls in the strip:
+- **This scene** *(default)*: only the code that draws the current scene, cut out of `src/engine.js`. For an uploaded image or video it is the code that turns pixels into the white and tint layers. Good for a "preset of the week" post, where the art and its source are one piece.
+- **Whole engine**: all of `src/engine.js`, as before.
+- **Python renderer**: `python/crucifix.py`.
+- **My code**: anything you paste into the text box under it.
+
+**Layout → Intro: code first, s** (0 = off) adds an opening of 1–4 s: the same code types itself over the whole frame, then the panel slides down into place while the scene resolves out of scrambled glyphs, brightest parts first. The last intro frame hands over to frame 0 of the loop. **▶ Replay intro** plays it again in the preview. Export, video conversion and publishing all start with the intro, so the clip gets longer by the intro length.
+
+## 🎨 Add your own scene in 5 minutes
+
+1. Open `src/engine.js` and copy a block in `PRESETS`, from its `// @scene <key>` line to the next one.
+2. Give it a new key and `name`. Draw with ordinary Canvas 2D calls in a 720×860 space (`sx`, `sy` scale it): whatever you paint on `L` becomes **white** glyphs, whatever you paint on `R` becomes the **tint** colour. Only alpha matters, so `#fff` with an alpha is all you need.
+3. `emitter` says where the streaks start, in the same 720×860 space.
+4. Save: Vite reloads, the scene appears as a button in **Source**, and **Code in panel → This scene** shows exactly your block. Helpers marked `// @helper <name>` are appended when the scene calls them.
 
 ## 🎞 Video → ASCII video
 
