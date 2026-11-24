@@ -16,7 +16,7 @@
 
 | | |
 |---|---|
-| 🖼 **Scenes** | Built-in procedural scenes (*Moon*, *Monolith*, *Cross*) or **your own image** |
+| 🖼 **Scenes** | Built-in procedural scenes (*Moon*, *Monolith*, *Cross*), **your own image**, or **a video**: every frame is converted, audio is dropped |
 | 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`), cell size, colour tints |
 | 🌧 **Animation** | Falling glowing streaks, a travelling pulse, flicker; seamless loops from 2 to **60 s** |
 | 🧾 **Code panel** | The engine's own source code scrolls under the scene, like in the creative-coding reels |
@@ -143,6 +143,12 @@ The tokens last about 60 days; the server refreshes them automatically.
 
 Install [ffmpeg](https://ffmpeg.org) (`winget install ffmpeg` · `brew install ffmpeg`).
 Without it you get a `.webm`, and Instagram may not accept that format.
+
+## 🎞 Video → ASCII video
+
+Upload a video in **Source → Upload a video**. The preview plays it muted through the ASCII engine in real time.
+**⬇ Convert video** then converts it frame by frame: the browser seeks to each frame, renders it with all the current settings (layout, tone, streaks, code panel) and sends it to the local server, and ffmpeg assembles a new MP4 **without audio**. A progress bar shows the frame count and the time left. You can choose **Output fps** (24/25/30/60) and **Max length**, up to 180 s.
+The same converted video is used by **Publish** and **Schedule**. To add a soundtrack, generate or upload music; it is mixed in only for scenes recorded live, not for converted videos.
 
 ## 🧭 Workflow
 

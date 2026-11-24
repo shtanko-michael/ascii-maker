@@ -209,6 +209,35 @@ function extractJson(text) {
 
 mountInstagram(app, { MEDIA, PORT });
 
+// ---------------- video source: frames rendered in the browser -> mp4 (no audio) ----------------
+const vjobs = new Map();
+app.post("/api/vrender/start", (req, res) => {
+  const fps = Math.max(1, Math.min(60, Number(req.body?.fps) || 30));
+  const id = String(Date.now());
+  const dir = path.join(MEDIA, `vr_${id}`);
+  fs.mkdirSync(dir, { recursive: true });
+  vjobs.set(id, { dir, fps, frames: 0 });
+  res.json({ id });
+});
+app.post("/api/vrender/:id/frame/:n", express.raw({ type: "*/*", limit: "25mb" }), (req, res) => {
+  const job = vjobs.get(req.params.id), n = Number(req.params.n);
+  if (!job || !Number.isInteger(n) || n < 0 || n > 200000) return res.status(400).json({ error: "bad frame" });
+  fs.writeFileSync(path.join(job.dir, `${String(n).padStart(6, "0")}.jpg`), req.body);
+  job.frames++;
+  res.json({ ok: true });
+});
+app.post("/api/vrender/:id/finish", async (req, res) => {
+  const id = req.params.id, job = vjobs.get(id);
+  if (!job) return res.status(404).json({ error: "unknown render job" });
+  const out = path.join(MEDIA, `reel_${id}.mp4`);
+  const r = await run(FFMPEG, ["-y", "-framerate", String(job.fps), "-i", path.join(job.dir, "%06d.jpg"),
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "18", "-an", "-movflags", "+faststart", out]);
+  fs.rmSync(job.dir, { recursive: true, force: true });
+  vjobs.delete(id);
+  if (r.code !== 0) return res.status(500).json({ error: "ffmpeg failed", log: (r.err || r.out).slice(-800) });
+  res.json({ url: `/media/reel_${id}.mp4`, frames: job.frames });
+});
+
 // ---------------- export ----------------
 app.post("/api/convert", express.raw({ type: "*/*", limit: "500mb" }), async (req, res) => {
   const id = Date.now();

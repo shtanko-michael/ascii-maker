@@ -47,6 +47,7 @@ export default function App() {
 
   const canvasRef = useRef(null), audioRef = useRef(null), tRef = useRef(0);
   const images = useRef(new Map()), audios = useRef(new Map()), graphs = useRef(new WeakMap());
+  const videos = useRef(new Map()), videoRef = useRef(null);   // tabId -> object URL of the source video
 
   // ---------- tab state helpers ----------
   const updateTab = (id, patch) => setState((s) => ({ ...s, tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...(typeof patch === "function" ? patch(t) : patch) } : t)) }));
@@ -67,7 +68,9 @@ export default function App() {
       getBlob(`img:${id}`).then((b) => b && blobToImage(b)).then((img) => { if (img) { images.current.set(id, img); bump((x) => x + 1); } });
     if (p.musicBlob && !audios.current.has(id))
       getBlob(`aud:${id}`).then((b) => { if (b) { audios.current.set(id, URL.createObjectURL(b)); bump((x) => x + 1); } });
-  }, [p.id, p.hasImage, p.musicBlob]);
+    if (p.hasVideo && !videos.current.has(id))
+      getBlob(`vid:${id}`).then((b) => { if (b) { videos.current.set(id, URL.createObjectURL(b)); bump((x) => x + 1); } });
+  }, [p.id, p.hasImage, p.musicBlob, p.hasVideo]);
 
   useEffect(() => { fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => setHealth(false)); }, []);
 
@@ -83,6 +86,8 @@ export default function App() {
   }, []);
 
   const image = p.hasImage ? images.current.get(p.id) || null : null;
+  const videoUrl = p.hasVideo ? videos.current.get(p.id) || null : null;
+  const [videoReady, setVideoReady] = useState(0);   // bumps when the <video> has a frame
   const musicUrl = p.musicBlob ? audios.current.get(p.id) || null : p.musicUrl;
 
   // ---------- engine ----------
@@ -91,10 +96,13 @@ export default function App() {
   const subject = { y: Math.round(p.subjectY), h: Math.round(Math.max(120, Math.min(H - p.subjectY, p.subjectH))) };
   const codeW = p.codeFull ? W : 588, codeX = p.codeFull ? 0 : 28;
   const code = p.showCode ? { top: p.codeY, bottom: Math.min(H, p.codeY + p.codeH), left: codeX, width: codeW, opacity: p.codeOpacity } : null;
+  // build layers from any source; video frames are rebuilt every frame
+  const buildFrom = (src) => buildLayers({ preset: p.preset, image: src, cw: p.cellW, ch: p.cellH, sceneW: box.w, sceneH: box.h,
+    seed: p.seed, subject, framing: { zoom: p.zoom, panX: p.panX, panY: p.panY } });
+  const vidEl = p.hasVideo && videoReady ? videoRef.current : null;
   const layers = useMemo(
-    () => buildLayers({ preset: p.preset, image, cw: p.cellW, ch: p.cellH, sceneW: box.w, sceneH: box.h, seed: p.seed, subject,
-      framing: { zoom: p.zoom, panX: p.panX, panY: p.panY } }),
-    [p.preset, image, p.cellW, p.cellH, p.seed, subject.y, subject.h, p.zoom, p.panX, p.panY]
+    () => buildFrom(vidEl || image),
+    [p.preset, image, vidEl, videoReady, p.cellW, p.cellH, p.seed, subject.y, subject.h, p.zoom, p.panX, p.panY]
   );
   const streakList = useMemo(
     () => makeStreaks(layers, { count: p.streaks, loop, seed: p.seed, lenMin: p.lenMin, lenMax: p.lenMax, speed: p.speed,
@@ -109,7 +117,9 @@ export default function App() {
     let raf, last = performance.now();
     const draw = () => {
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
-      renderFrame(ctx, layers, streakList, tRef.current, opts);
+      const v = videoRef.current;
+      const L = p.hasVideo && v && v.readyState >= 2 ? buildFrom(v) : layers;   // live video: fresh frame each tick
+      renderFrame(ctx, L, streakList, tRef.current, opts);
       if (code) renderCode(ctx, CODE_LINES, tRef.current, loop, code.top, code.bottom, code.left, code.width, code.opacity);
     };
     const tick = (now) => {
@@ -121,19 +131,25 @@ export default function App() {
   });
 
   useEffect(() => {
+    const v = videoRef.current; if (!v || !videoUrl || busy === "video") return;
+    playing ? v.play().catch(() => {}) : v.pause();
+  }, [playing, videoUrl, busy]);
+
+  useEffect(() => {
     const a = audioRef.current; if (!a || !musicUrl) return;
     playing ? a.play().catch(() => {}) : a.pause();
   }, [playing, musicUrl, p.id]);
 
   // ---------- tabs ----------
   const addTab = (from) => {
-    const t = from ? { ...from, id: newProject().id, name: from.name + " copy", hasImage: false, musicBlob: false } : newProject(`Scene ${state.tabs.length + 1}`);
+    const t = from ? { ...from, id: newProject().id, name: from.name + " copy", hasImage: false, hasVideo: false, musicBlob: false } : newProject(`Scene ${state.tabs.length + 1}`);
     if (from?.hasImage) getBlob(`img:${from.id}`).then((b) => b && putBlob(`img:${t.id}`, b).then(() => updateTab(t.id, { hasImage: true })));
+    if (from?.hasVideo) getBlob(`vid:${from.id}`).then((b) => b && putBlob(`vid:${t.id}`, b).then(() => updateTab(t.id, { hasVideo: true })));
     setState((s) => ({ tabs: [...s.tabs, t], active: t.id }));
   };
   const closeTab = (id) => {
     if (state.tabs.length === 1) return;
-    delBlob(`img:${id}`); delBlob(`aud:${id}`);
+    delBlob(`img:${id}`); delBlob(`aud:${id}`); delBlob(`vid:${id}`);
     setState((s) => {
       const i = s.tabs.findIndex((t) => t.id === id), tabs = s.tabs.filter((t) => t.id !== id);
       return { tabs, active: s.active === id ? tabs[Math.max(0, i - 1)].id : s.active };
@@ -150,7 +166,16 @@ export default function App() {
     const blob = await shrinkImage(f), id = p.id;
     await putBlob(`img:${id}`, blob);
     images.current.set(id, await blobToImage(blob));
-    updateTab(id, { hasImage: true });
+    updateTab(id, { hasImage: true, hasVideo: false });
+  };
+  const onVideo = async (f) => {
+    if (!f) return;
+    const id = p.id;
+    await putBlob(`vid:${id}`, f);
+    const old = videos.current.get(id); if (old) URL.revokeObjectURL(old);
+    videos.current.set(id, URL.createObjectURL(f));
+    setVideoReady(0);
+    updateTab(id, { hasVideo: true, hasImage: false, videoName: f.name });
   };
   const onAudio = async (f) => {
     if (!f) return;
@@ -244,16 +269,65 @@ export default function App() {
     return j.url;                       // "/media/reel_<n>.mp4"
   }
 
-  async function exportVideo() {
-    setBusy("export"); setLog("Recording…");
+  // ---------- video source: frame-by-frame conversion (audio is dropped) ----------
+  const seek = (v, t) => new Promise((res) => {
+    if (Math.abs(v.currentTime - t) < 1e-4 && v.readyState >= 2) return res();
+    v.addEventListener("seeked", () => res(), { once: true });
+    v.currentTime = t;
+  });
+  async function convertVideo(onProgress = () => {}) {
+    const v = videoRef.current;
+    if (!v || !v.duration) throw new Error("The video is not loaded yet");
+    setBusy("video"); setPlaying(false); v.pause();
+    const fps = p.videoFps, dur = Math.min(v.duration, p.videoMax), n = Math.max(1, Math.floor(dur * fps));
+    const r = await fetch("/api/vrender/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fps }) });
+    const { id, error } = await r.json();
+    if (!r.ok) throw new Error(error);
+    const cv = canvasRef.current, ctx = cv.getContext("2d"), pending = [], t0 = Date.now();
     try {
-      const blob = await recordWebm();
-      let url = URL.createObjectURL(blob), name = `${p.name || "reel"}.webm`;
-      if (health?.ffmpeg) { setLog("Converting to MP4…"); url = await toMp4(blob); name = `${p.name || "reel"}.mp4`; }
+      for (let i = 0; i < n; i++) {
+        await seek(v, i / fps);
+        ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+        const tt = Math.round(i * 30 / fps);              // engine time runs at 30 ticks per second
+        renderFrame(ctx, buildFrom(v), streakList, tt, opts);
+        if (code) renderCode(ctx, CODE_LINES, tt, loop, code.top, code.bottom, code.left, code.width, code.opacity);
+        const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.92));
+        pending.push(fetch(`/api/vrender/${id}/frame/${i}`, { method: "POST", body: blob }).then((x) => { if (!x.ok) throw new Error("frame upload failed"); }));
+        if (pending.length >= 6) await pending.shift();
+        const el = (Date.now() - t0) / 1000;
+        onProgress((i + 1) / n * 0.95, `Frame ${i + 1} / ${n}`, el / (i + 1) * (n - i - 1));
+      }
+      await Promise.all(pending);
+      onProgress(0.97, "Encoding MP4", 0);
+      const f = await fetch(`/api/vrender/${id}/finish`, { method: "POST" });
+      const j = await f.json();
+      if (!f.ok) throw new Error(`${j.error}\n${j.log || ""}`);
+      return j.url;
+    } finally { setBusy(""); setPlaying(true); }
+  }
+
+  // one place that produces the reel MP4 on the server, for export and for publishing
+  async function makeReelMp4(onProgress = () => {}) {
+    if (p.hasVideo) return convertVideo(onProgress);
+    const blob = await recordWebm((f) => onProgress(f * 0.9, "Recording"));
+    onProgress(0.92, "Converting to MP4");
+    return toMp4(blob);
+  }
+
+  const [conv, setConv] = useState(null);   // export / conversion progress
+  async function exportVideo() {
+    setBusy((b) => b || "export"); setLog("");
+    try {
+      let url, name = `${p.name || "reel"}.mp4`;
+      if (p.hasVideo || health?.ffmpeg) {
+        url = await makeReelMp4((progress, stage, eta) => setConv({ progress, stage, eta }));
+      } else {
+        url = URL.createObjectURL(await recordWebm((f) => setConv({ progress: f, stage: "Recording" }))); name = `${p.name || "reel"}.webm`;
+      }
       const a = document.createElement("a"); a.href = url; a.download = name; a.click();
       setLog(`Saved ${name}`);
     } catch (e) { setLog(String(e.message || e)); }
-    setBusy("");
+    setConv(null); setBusy("");
   }
 
   // ---------- Instagram ----------
@@ -278,10 +352,8 @@ export default function App() {
     const base = { caption: fullText, aiLabel: p.aiLabel, title: p.name };
     const results = [];
     try {
-      setIgJob(id, { state: "running", stage: "Recording", progress: 0, results: [] });
-      const blob = await recordWebm((f) => setIgJob(id, { progress: f * 0.3, stage: "Recording" }));
-      setIgJob(id, { stage: "Converting to MP4", progress: 0.32 });
-      const video = await toMp4(blob);
+      setIgJob(id, { state: "running", stage: p.hasVideo ? "Converting video" : "Recording", progress: 0, results: [] });
+      const video = await makeReelMp4((f, stage) => setIgJob(id, { progress: f * 0.33, stage: stage || "Recording" }));
       if (scheduleAt) {
         for (const acc of accs) {
           const r = await fetch("/api/ig/queue", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -331,13 +403,24 @@ export default function App() {
         <Section title="Source">
           <div className="row">
             {Object.entries(PRESETS).map(([k, pr]) => (
-              <button key={k} className={!p.hasImage && p.preset === k ? "on" : ""} onClick={() => set({ hasImage: false, preset: k })}>{pr.name}</button>
+              <button key={k} className={!p.hasImage && !p.hasVideo && p.preset === k ? "on" : ""} onClick={() => set({ hasImage: false, hasVideo: false, preset: k })}>{pr.name}</button>
             ))}
           </div>
           <label className="drop">
             <input type="file" accept="image/*" onChange={(e) => onImage(e.target.files[0])} />
             {p.hasImage ? "✓ Your image — click to replace" : "Upload your image (JPG/PNG)"}
           </label>
+          <label className="drop">
+            <input type="file" accept="video/*" onChange={(e) => onVideo(e.target.files[0])} />
+            {p.hasVideo ? `✓ ${p.videoName || "Your video"} — click to replace` : "Upload a video (MP4/MOV/WebM)"}
+          </label>
+          {p.hasVideo && <>
+            <p className="hint">Sound is dropped. Every frame is converted at export.</p>
+            <Select label="Output fps" v={String(p.videoFps)} set={(v) => set({ videoFps: Number(v) })} opts={["24", "25", "30", "60"]} />
+            <Slider label="Max length, s" v={p.videoMax} set={field("videoMax")} min={1} max={180} />
+          </>}
+          {videoUrl && <video key={videoUrl} ref={videoRef} src={videoUrl} muted playsInline loop preload="auto" style={{ display: "none" }}
+            onLoadedData={() => setVideoReady((x) => x + 1)} />}
         </Section>
 
         <Section title="Layout">
@@ -470,9 +553,11 @@ export default function App() {
           <canvas ref={canvasRef} width={W} height={H} />
         </Phone>
         <div className="row center">
-          <button className="primary" disabled={!!busy} onClick={exportVideo}>{busy === "export" ? "Recording…" : "⬇ Export reel"}</button>
+          <button className="primary" disabled={!!busy} onClick={exportVideo}>{busy ? (p.hasVideo ? "Converting…" : "Recording…") : p.hasVideo ? "⬇ Convert video" : "⬇ Export reel"}</button>
           <button onClick={() => { const a = document.createElement("a"); a.href = canvasRef.current.toDataURL("image/png"); a.download = "frame.png"; a.click(); }}>Save frame PNG</button>
         </div>
+        {conv && <div style={{ width: 360 }}><Progress value={conv.progress} label={`${conv.stage} · ${Math.round(conv.progress * 100)}%`}
+          sub={conv.eta ? `~${fmt(conv.eta * 1000)} left` : null} /></div>}
         {log && <pre className="log">{log}</pre>}
       </main>
 

@@ -174,8 +174,10 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, s
     // cover-crop the image into the subject band (or the whole scene), then extend its edges
     const bh = subject ? subject.h : sceneH, by = subject ? subject.y : 0;
     let cv = makeCanvas(sceneW, bh); const c = cv.getContext("2d");
-    const s = Math.max(sceneW / image.width, bh / image.height);
-    const iw = image.width * s, ih = image.height * s;
+    // works for <img>, <canvas> and <video> (whose intrinsic size is videoWidth/videoHeight)
+    const srcW = image.videoWidth || image.naturalWidth || image.width, srcH = image.videoHeight || image.naturalHeight || image.height;
+    const s = Math.max(sceneW / srcW, bh / srcH);
+    const iw = srcW * s, ih = srcH * s;
     c.drawImage(image, (sceneW - iw) / 2, (bh - ih) / 2, iw, ih);
     if (subject) cv = placeBand(cv, sceneW, sceneH, by, bh, framing);
     const d = sample(cv, cols, rows);

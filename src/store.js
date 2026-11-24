@@ -14,7 +14,7 @@ export function newProject(name = "Untitled", patch = {}) {
   return {
     id: Math.random().toString(36).slice(2, 10),
     name,
-    preset: "moon", hasImage: false, layout: "reels", seed: 7,
+    preset: "moon", hasImage: false, hasVideo: false, videoName: "", videoFps: 30, videoMax: 60, layout: "reels", seed: 7,
     ...(({ name, ...v }) => v)(LAYOUTS.reels), zoom: 1, panX: 0, panY: 0,
     ramp: "classic", tint: "blood", streaks: 60, streakGain: 0.6, pulse: 0.3, loopSec: 6,
     ...FINE_DEFAULTS,
