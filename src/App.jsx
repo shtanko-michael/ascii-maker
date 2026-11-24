@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { W, H, LAYOUTS, LAYOUT_KEYS, PRESETS, FINE_DEFAULTS, buildLayers, makeStreaks, renderFrame, renderCode, describeVisual } from "./engine.js";
+import { W, H, LAYOUTS, LAYOUT_KEYS, PRESETS, PALETTES, FINE_DEFAULTS, buildLayers, makeStreaks, renderFrame, renderCode, describeVisual } from "./engine.js";
 import { loadTabs, saveTabs, newProject, putBlob, getBlob, delBlob, shrinkImage, blobToImage } from "./store.js";
 import engineSource from "./engine.js?raw";
 
@@ -435,6 +435,17 @@ export default function App() {
         <Section title="Look">
           <Select label="Glyphs" v={p.ramp} set={field("ramp")} opts={Object.keys(RAMPS)} />
           <Select label="Tint" v={p.tint} set={field("tint")} opts={Object.keys(TINTS)} />
+          <div className="row colorquick">
+            <button className={p.colorMode === "source" ? "on" : ""} onClick={() => set({ colorMode: "source" })}>Red / white</button>
+            <button className={p.colorMode === "original" ? "on" : ""} onClick={() => set({ colorMode: "original" })}>Original colours</button>
+            <button className={p.colorMode === "palette" ? "on" : ""} onClick={() => set({ colorMode: "palette" })}>Palette</button>
+          </div>
+          {p.colorMode === "palette" && <div className="swatches">
+            {Object.entries(PALETTES).map(([k, stops]) => (
+              <button key={k} title={k} className={"swatch" + (p.palette === k ? " on" : "")} onClick={() => set({ palette: k })}
+                style={{ background: `linear-gradient(90deg, ${stops.join(",")})` }}><span>{k}</span></button>
+            ))}
+          </div>}
           <Slider label="Streaks" v={p.streaks} set={field("streaks")} min={0} max={300} />
           <Slider label="Streak glow" v={p.streakGain} set={field("streakGain")} min={0} max={1.5} step={0.05} />
           <Slider label="Pulse" v={p.pulse} set={field("pulse")} min={0} max={1} step={0.05} />
@@ -485,7 +496,14 @@ export default function App() {
         </Group>
 
         <Group title="Colour">
-          <Select label="Mode" v={p.colorMode} set={field("colorMode")} opts={["source", "tint", "mono"]} />
+          <Select label="Mode" v={p.colorMode} set={field("colorMode")} opts={["source", "original", "palette", "tint", "mono"]} />
+          {p.colorMode === "original" && !p.hasImage && !p.hasVideo && <p className="hint">Original colours need your own image or video; presets look like "source".</p>}
+          {p.colorMode === "palette" && <div className="swatches">
+            {Object.entries(PALETTES).map(([k, stops]) => (
+              <button key={k} title={k} className={"swatch" + (p.palette === k ? " on" : "")} onClick={() => set({ palette: k })}
+                style={{ background: `linear-gradient(90deg, ${stops.join(",")})` }}><span>{k}</span></button>
+            ))}
+          </div>}
           <Slider label="Saturation" v={p.saturation} set={field("saturation")} min={0} max={2} step={0.05} />
           <Color label="Background" v={p.background} set={field("background")} />
           <Color label="Streak colour" v={p.streakColor} set={field("streakColor")} />

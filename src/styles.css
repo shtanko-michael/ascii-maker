@@ -152,3 +152,8 @@ details.group[open] summary::before { content: "▾ "; }
 .resetbar { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
 button.danger { border-color: var(--red); color: #ffb4a8; background: #2a1012; }
 @media (max-width: 1150px) { .cards { max-height: none; } }
+.swatches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 6px 0 10px; }
+.swatch { height: 30px; border-radius: 8px; padding: 0 8px; text-align: left; border: 2px solid transparent; }
+.swatch span { font-size: 11px; color: #fff; text-shadow: 0 1px 3px #000; }
+.swatch.on { border-color: #fff; }
+.colorquick button { flex: 1; font-size: 12px; padding: 7px 6px; }

@@ -169,6 +169,7 @@ function placeBand(src, w, h, y0, bh, { zoom = 1, panX = 0, panY = 0 } = {}, fea
 export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, subject = null, framing = {}, redGain = 1.6, whiteGain = 1.15 }) {
   const cols = Math.floor(sceneW / cw), rows = Math.floor(sceneH / ch);
   const lum = new Float32Array(cols * rows), red = new Float32Array(cols * rows);
+  let rgb = null;   // source colours per cell (images and video only), used by the "original" colour mode
   let emitter;
   if (image) {
     // cover-crop the image into the subject band (or the whole scene), then extend its edges
@@ -186,6 +187,8 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, s
       const r = d[i * 4] / 255 * al, g = d[i * 4 + 1] / 255 * al, b = d[i * 4 + 2] / 255 * al;
       red[i] = Math.min(1, Math.max(0, (r - Math.max(g, b)) * redGain));   // saturated reds
       lum[i] = Math.min(1, Math.min(r, g, b) * whiteGain);                 // whites/greys
+      if (!rgb) rgb = new Float32Array(cols * rows * 3);
+      rgb[i * 3] = r; rgb[i * 3 + 1] = g; rgb[i * 3 + 2] = b;
     }
     emitter = brightestBlob(lum, cols, rows, cw, ch);
   } else {
@@ -203,7 +206,7 @@ export function buildLayers({ preset, image, cw, ch, sceneW = W, sceneH, seed, s
   }
   let ml = 0, mr = 0;
   for (let i = 0; i < lum.length; i++) { ml += lum[i]; mr += red[i]; }
-  return { cols, rows, cw, ch, w: sceneW, h: sceneH, lum, red, emitter,
+  return { cols, rows, cw, ch, w: sceneW, h: sceneH, lum, red, rgb, emitter,
     stats: { brightness: ml / lum.length, redness: mr / red.length } };
 }
 
@@ -243,7 +246,8 @@ export function makeStreaks(L, o) {
 const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
 
 export function renderFrame(ctx, L, S, t, o) {
-  const { cols, rows, lum, red, cw, ch } = L;
+  const { cols, rows, lum, red, rgb, cw, ch } = L;
+  const original = o.colorMode === "original" && rgb, pal = o.colorMode === "palette" ? PALETTE_LUT[o.palette] || PALETTE_LUT.amber : null;
   const ox = o.x || 0, oy = o.y || 0, loop = o.loop, dir = o.direction === "up" ? -1 : 1;
 
   // 1) streak field
@@ -283,9 +287,18 @@ export function renderFrame(ctx, L, S, t, o) {
     const scan = o.scanlines && y % 2 ? 1 - o.scanlines : 1;
     for (let x = 0; x < cols; x++) {
       const i = y * cols + x, s = field[i], l = lum[i] * o.whiteMix, rd = red[i] * pulse * o.tintMix;
-      let r = rd * tint[0] + l + s * streakCol[0];
-      let g = (rd * tint[1] + l) * flick + s * streakCol[1];
-      let b = (rd * tint[2] + l) * flick + s * streakCol[2];
+      let r, g, b;
+      if (original) {   // the picture's own colours (+ streaks); pulse and flicker still modulate it
+        const k = (1 - o.pulse * 0.5 + o.pulse * 0.5 * pulse) * flick * o.whiteMix;
+        r = rgb[i * 3] * k + s * streakCol[0]; g = rgb[i * 3 + 1] * k + s * streakCol[1]; b = rgb[i * 3 + 2] * k + s * streakCol[2];
+      } else if (pal && rgb) {   // palette on a picture: map its real luminance, not just the white layer
+        const k = (1 - o.pulse * 0.5 + o.pulse * 0.5 * pulse) * flick * o.whiteMix;
+        r = g = b = (0.299 * rgb[i * 3] + 0.587 * rgb[i * 3 + 1] + 0.114 * rgb[i * 3 + 2]) * k + s;
+      } else {
+        r = rd * tint[0] + l + s * streakCol[0];
+        g = (rd * tint[1] + l) * flick + s * streakCol[1];
+        b = (rd * tint[2] + l) * flick + s * streakCol[2];
+      }
       // tone: brightness, contrast, gamma, vignette
       let v = Math.max(r, g, b);
       if (v <= 0) continue;
@@ -302,6 +315,7 @@ export function renderFrame(ctx, L, S, t, o) {
       // colour
       let cr, cg, cb;
       if (o.colorMode === "mono") { cr = cg = cb = tv; }
+      else if (pal) { const q = Math.min(255, Math.max(0, tv * 255 | 0)) * 3; cr = pal[q]; cg = pal[q + 1]; cb = pal[q + 2]; }
       else if (o.colorMode === "tint") { cr = tint[0] * tv; cg = tint[1] * tv; cb = tint[2] * tv; }
       else { const k = (0.35 + 0.65 * tv) / v; cr = r * k; cg = g * k; cb = b * k; }
       const sat = o.saturation, m = (cr + cg + cb) / 3;
@@ -312,11 +326,32 @@ export function renderFrame(ctx, L, S, t, o) {
   }
 }
 
+// gradient maps: brightness 0..1 -> colour, stops from dark to light
+export const PALETTES = {
+  amber:     ["#1a0a00", "#7a3a00", "#ffb000", "#fff2c8"],
+  matrix:    ["#001a05", "#00661a", "#00ff41", "#d8ffe0"],
+  cyberpunk: ["#12002a", "#7a00ff", "#ff2bd6", "#00f0ff"],
+  sunset:    ["#1b0a2e", "#8a1c5c", "#ff6b35", "#ffe28a"],
+  ocean:     ["#00111f", "#004a7c", "#00a8e8", "#d6f6ff"],
+  sepia:     ["#1e1208", "#6b4423", "#c49a6c", "#f3e5c8"],
+  fireice:   ["#2a0000", "#ff3d00", "#ffffff", "#40c4ff"],
+  vapor:     ["#1c0b33", "#ff71ce", "#01cdfe", "#fffb96"],
+};
+const toRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+const PALETTE_LUT = Object.fromEntries(Object.entries(PALETTES).map(([k, stops]) => {
+  const c = stops.map(toRgb), lut = new Float32Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const x = i / 255 * (c.length - 1), j = Math.min(c.length - 2, Math.floor(x)), f = x - j;
+    for (let ch = 0; ch < 3; ch++) lut[i * 3 + ch] = c[j][ch] + (c[j + 1][ch] - c[j][ch]) * f;
+  }
+  return [k, lut];
+}));
+
 // default fine-tuning values (the UI and saved tabs start from these)
 export const FINE_DEFAULTS = {
   cellW: 8, cellH: 8, fontScale: 1.25, bold: false,
   brightness: 1, contrast: 1, gamma: 1, threshold: 0.04, invert: false, saturation: 1,
-  colorMode: "source", background: "#000000", whiteMix: 1, tintMix: 1,
+  colorMode: "source", palette: "amber", background: "#000000", whiteMix: 1, tintMix: 1,
   streakColor: "#ffffff", thickness: 1, lenMin: 200, lenMax: 500, speed: 3, accel: 1.4,
   wobble: 4, fade: 0.7, direction: "down", emitX: null, emitY: null, emitSpread: null,
   pulseWave: 120, pulseSpeed: 2, flicker: 0.08,

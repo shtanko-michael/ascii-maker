@@ -17,7 +17,8 @@
 | | |
 |---|---|
 | 🖼 **Scenes** | Built-in procedural scenes (*Moon*, *Monolith*, *Cross*), **your own image**, or **a video**: every frame is converted, audio is dropped |
-| 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`), cell size, colour tints |
+| 🔣 **ASCII engine** | Glyph ramps (`classic`, `blocks`, `dense`, `binary`, `dots`, `katakana`, `lines`), cell size, tints |
+| 🎨 **Colour** | **Red / white** (default), **Original colours** of your image or video, or **Palette** gradient maps: amber, matrix, cyberpunk, sunset, ocean, sepia, fire & ice, vapor |
 | 🌧 **Animation** | Falling glowing streaks, a travelling pulse, flicker; seamless loops from 2 to **60 s** |
 | 🧾 **Code panel** | The engine's own source code scrolls under the scene, like in the creative-coding reels |
 | 🛡 **Reels-safe layout** | Scene and code are placed so the Instagram UI never covers them; safe-zone overlay in the preview |
